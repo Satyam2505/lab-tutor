@@ -185,11 +185,15 @@ def compute_reveal(
             "Refusing to compute the final answer: step verification is incomplete."
         )
 
-    result = plugin.check(student_data, student_final_value)
-    if result.expected_value is None:
+    # Ask for the value, not a verdict: `check` needs something to compare
+    # against and reports INVALID without one, which is correct for a
+    # submission and wrong here.
+    try:
+        computed = plugin.compute_expected(student_data)
+    except NotImplementedError as exc:
         raise PrematureRevealError(
-            "Tier 1 produced no value to reveal for this experiment."
-        )
+            f"{plugin.id} has no computable final value to reveal."
+        ) from exc
 
     steps = steps_for(plugin)
     final_step = next((s for s in steps if s.is_final), steps[-1])
@@ -197,7 +201,7 @@ def compute_reveal(
 
     return build_reveal(
         all_steps_complete=True,
-        computed_value=result.expected_value,
+        computed_value=computed,
         label=final_step.key.replace("_", " "),
         student_value=student_final_value,
         tolerance_description=tolerance.describe() if tolerance else "",

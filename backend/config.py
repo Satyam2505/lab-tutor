@@ -10,8 +10,10 @@ from __future__ import annotations
 import functools
 from typing import Literal
 
+from typing import Annotated
+
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def _split_domains(raw: str | list[str]) -> list[str]:
@@ -48,10 +50,13 @@ class Settings(BaseSettings):
     # --- role domains ---
     # Configurable so an additional/corrected domain never requires a code
     # change. Role determination reads ONLY these (backend/auth/roles.py).
-    student_domains: list[str] = Field(
+    # NoDecode: these arrive as a plain comma-separated string, not JSON, so
+    # pydantic-settings must hand the raw value to the validator below
+    # rather than trying to parse it as a list literal first.
+    student_domains: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["vitstudent.ac.in"], alias="LABTUTOR_STUDENT_DOMAINS"
     )
-    faculty_domains: list[str] = Field(
+    faculty_domains: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["vit.ac.in"], alias="LABTUTOR_FACULTY_DOMAINS"
     )
 

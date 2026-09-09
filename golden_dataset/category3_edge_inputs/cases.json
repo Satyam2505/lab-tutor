@@ -1,0 +1,165 @@
+{
+  "category": 3,
+  "title": "Adversarial and edge inputs",
+  "note": "Stress the extraction layer and Tier 1 input handling, independent of any experiment's chemistry. Expected behaviour in every case: a clear validation error naming the field, never a silent guess at intent and never a crash.",
+  "cases": [
+    {
+      "id": "c3-empty-submission",
+      "description": "Nothing submitted at all.",
+      "payload": {},
+      "expect": "invalid",
+      "expect_error_contains": "empty"
+    },
+    {
+      "id": "c3-missing-required-field",
+      "description": "A required field is absent.",
+      "payload": {"v1": 25.0},
+      "required": ["n1", "v1", "v2"],
+      "expect": "invalid",
+      "expect_error_contains": "required"
+    },
+    {
+      "id": "c3-blank-required-field",
+      "description": "Present but empty string, which is not the same as absent.",
+      "payload": {"n1": "", "v1": 25.0, "v2": 20.0},
+      "required": ["n1", "v1", "v2"],
+      "expect": "invalid",
+      "expect_error_contains": "required"
+    },
+    {
+      "id": "c3-comma-decimal",
+      "description": "European decimal comma. Ambiguous: could be 12.34 or two values, so it must be rejected rather than guessed.",
+      "payload": {"titre": "12,34"},
+      "numeric_fields": ["titre"],
+      "expect": "invalid",
+      "expect_error_contains": "comma"
+    },
+    {
+      "id": "c3-double-decimal-point",
+      "description": "Two decimal points; no defensible reading.",
+      "payload": {"titre": "1.2.3"},
+      "numeric_fields": ["titre"],
+      "expect": "invalid",
+      "expect_error_contains": "decimal point"
+    },
+    {
+      "id": "c3-mixed-separators",
+      "description": "Both a comma and a full stop, e.g. a thousands separator.",
+      "payload": {"titre": "1,234.5"},
+      "numeric_fields": ["titre"],
+      "expect": "invalid",
+      "expect_error_contains": "comma"
+    },
+    {
+      "id": "c3-trailing-unit",
+      "description": "A trailing unit is unambiguous, so it is stripped and accepted rather than rejected.",
+      "payload": {"titre": "25 mL"},
+      "numeric_fields": ["titre"],
+      "expect": "valid",
+      "expect_value": {"titre": 25.0}
+    },
+    {
+      "id": "c3-trailing-unit-molar",
+      "description": "Another unambiguous unit suffix.",
+      "payload": {"conc": "0.1 M"},
+      "numeric_fields": ["conc"],
+      "expect": "valid",
+      "expect_value": {"conc": 0.1}
+    },
+    {
+      "id": "c3-non-numeric-text",
+      "description": "Free text in a numeric field.",
+      "payload": {"titre": "about twenty five"},
+      "numeric_fields": ["titre"],
+      "expect": "invalid",
+      "expect_error_contains": "not a number"
+    },
+    {
+      "id": "c3-boolean-in-numeric",
+      "description": "A boolean must not silently become 1.0.",
+      "payload": {"titre": true},
+      "numeric_fields": ["titre"],
+      "expect": "invalid",
+      "expect_error_contains": "not true/false"
+    },
+    {
+      "id": "c3-nan-string",
+      "description": "Literal NaN text.",
+      "payload": {"titre": "NaN"},
+      "numeric_fields": ["titre"],
+      "expect": "invalid",
+      "expect_error_contains": "not a number"
+    },
+    {
+      "id": "c3-infinity-string",
+      "description": "Literal infinity text.",
+      "payload": {"titre": "Infinity"},
+      "numeric_fields": ["titre"],
+      "expect": "invalid",
+      "expect_error_contains": "not a number"
+    },
+    {
+      "id": "c3-negative-volume",
+      "description": "Physically impossible; Tier 1 rejects it as a validation error rather than diagnosing it.",
+      "payload": {"n1": 0.1, "v1": -25.0, "v2": 20.0},
+      "numeric_fields": ["n1", "v1", "v2"],
+      "expect": "valid_extraction_invalid_tier1",
+      "expect_error_contains": "cannot be negative"
+    },
+    {
+      "id": "c3-zero-divisor",
+      "description": "A zero in the denominator makes the result undefined.",
+      "payload": {"n1": 0.1, "v1": 25.0, "v2": 0.0},
+      "numeric_fields": ["n1", "v1", "v2"],
+      "expect": "valid_extraction_invalid_tier1",
+      "expect_error_contains": "zero"
+    },
+    {
+      "id": "c3-absurdly-large",
+      "description": "Orders of magnitude outside anything physically plausible. Extraction accepts the number; Tier 1 is where implausibility is judged.",
+      "payload": {"n1": 1e30, "v1": 25.0, "v2": 20.0},
+      "numeric_fields": ["n1", "v1", "v2"],
+      "expect": "valid",
+      "expect_value": {"n1": 1e30, "v1": 25.0, "v2": 20.0}
+    },
+    {
+      "id": "c3-series-with-bad-entry",
+      "description": "One bad reading fails the whole series; a partial series would silently change the fit.",
+      "payload": {"volumes": [1.0, 2.0, "oops", 4.0]},
+      "series_fields": ["volumes"],
+      "expect": "invalid",
+      "expect_error_contains": "volumes[2]"
+    },
+    {
+      "id": "c3-series-too-short",
+      "description": "Fewer readings than the method needs.",
+      "payload": {"volumes": []},
+      "series_fields": ["volumes"],
+      "expect": "invalid",
+      "expect_error_contains": "at least"
+    },
+    {
+      "id": "c3-series-as-string",
+      "description": "A whitespace/comma separated string is an accepted way to enter a series.",
+      "payload": {"volumes": "1.0, 2.0, 3.0, 4.0"},
+      "series_fields": ["volumes"],
+      "expect": "valid",
+      "expect_value": {"volumes": [1.0, 2.0, 3.0, 4.0]}
+    },
+    {
+      "id": "c3-scientific-notation",
+      "description": "Scientific notation is legitimate and must be accepted.",
+      "payload": {"conc": "1.5e-3"},
+      "numeric_fields": ["conc"],
+      "expect": "valid",
+      "expect_value": {"conc": 0.0015}
+    },
+    {
+      "id": "c3-duplicate-submission",
+      "description": "Same student, same experiment, submitted twice. Intended behaviour, chosen and tested here: the second is absorbed by the idempotency key and replays the first response rather than creating a second row or a second inference call.",
+      "payload": {"n1": 0.1, "v1": 25.0, "v2": 20.0},
+      "numeric_fields": ["n1", "v1", "v2"],
+      "expect": "idempotent_replay"
+    }
+  ]
+}

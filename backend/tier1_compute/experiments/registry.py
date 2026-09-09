@@ -73,6 +73,16 @@ class ExperimentPlugin:
     ) -> Tier1Result:
         raise NotImplementedError
 
+    def compute_expected(self, inputs: dict[str, Any]) -> float:
+        """The experiment's value from the student's own data, with no verdict.
+
+        Separate from `check` because the reveal path wants the number
+        itself: `check` needs something to compare against and reports
+        INVALID without one, which is right for a submission and wrong for
+        a reveal.
+        """
+        raise NotImplementedError
+
 
 @dataclass(frozen=True)
 class DeterministicPlugin(ExperimentPlugin):
@@ -102,6 +112,13 @@ class DeterministicPlugin(ExperimentPlugin):
                 "tolerance from the BACHY105 manual before enabling this experiment."
             )
         return self.checker.check(inputs, reported)
+
+    def compute_expected(self, inputs: dict[str, Any]) -> float:
+        if self.checker is None:
+            raise ManualNotTranscribedError(
+                f"{self.id}: no checker configured, so no value can be computed."
+            )
+        return float(self.checker.compute_expected(inputs))
 
     def check_step(
         self, step_index: int, inputs: dict[str, Any], submitted: float | None
