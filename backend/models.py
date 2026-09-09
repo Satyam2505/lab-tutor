@@ -159,6 +159,10 @@ class SocraticSession(Base):
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
     experiment_id: Mapped[str] = mapped_column(String(64), index=True)
     current_step: Mapped[int] = mapped_column(Integer, default=0)
+    # The student's own accumulated readings, built up step by step. Tier 1
+    # verifies each step against this; it is the only data the final reveal
+    # is computed from.
+    student_data: Mapped[dict] = mapped_column(JSON, default=dict)
     # Set by server-side step verification only. The answer gate consults
     # this -- and nothing else -- to decide whether a reveal may happen.
     all_steps_complete: Mapped[bool] = mapped_column(Boolean, default=False)

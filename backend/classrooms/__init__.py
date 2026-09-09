@@ -1,3 +1,31 @@
-"""Classroom CRUD, join-by-code (high-entropy class codes, not short guessable strings), and active-experiment management. A classroom is persistent (one per lab section, reused across the semester); every student submission in a classroom is auto-tagged with that classroom's active experiment."""
+"""Persistent classrooms, high-entropy join codes, active-experiment tagging."""
 
-# TODO: implement
+from backend.classrooms.service import (
+    ClassroomError,
+    ClassroomView,
+    JoinClosed,
+    NotEnrolled,
+    create_classroom,
+    generate_join_code,
+    join_classroom,
+    require_active_experiment,
+    roster_with_users,
+    set_active_experiment,
+    set_join_open,
+    student_count,
+)
+
+__all__ = [
+    "ClassroomError",
+    "ClassroomView",
+    "JoinClosed",
+    "NotEnrolled",
+    "create_classroom",
+    "generate_join_code",
+    "join_classroom",
+    "require_active_experiment",
+    "roster_with_users",
+    "set_active_experiment",
+    "set_join_open",
+    "student_count",
+]
