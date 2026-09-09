@@ -27,22 +27,28 @@ def registered_experiment(monkeypatch):
     return plugin
 
 
-def cookies_for(token: str) -> dict[str, str]:
-    return {session_cookie.COOKIE_NAME: token}
+def auth(token: str) -> dict[str, str]:
+    """Auth as an explicit Cookie header.
+
+    Per-request `cookies=` is deprecated in httpx and would otherwise
+    persist on the client, which is wrong here: these tests deliberately
+    switch between users on one client.
+    """
+    return {"Cookie": f"{session_cookie.COOKIE_NAME}={token}"}
 
 
 async def _make_classroom(client, faculty_token, experiment_id="ref01"):
     created = await client.post(
         "/api/classrooms",
         json={"name": "Tuesday B1"},
-        cookies=cookies_for(faculty_token),
+        headers=auth(faculty_token),
     )
     assert created.status_code == 201, created.text
     classroom = created.json()
     activated = await client.patch(
         f"/api/classrooms/{classroom['id']}/active-experiment",
         json={"experiment_id": experiment_id},
-        cookies=cookies_for(faculty_token),
+        headers=auth(faculty_token),
     )
     assert activated.status_code == 200, activated.text
     return classroom
@@ -52,7 +58,7 @@ async def _enrol(client, student_token, join_code):
     joined = await client.post(
         "/api/classrooms/join",
         json={"join_code": join_code},
-        cookies=cookies_for(student_token),
+        headers=auth(student_token),
     )
     assert joined.status_code == 200, joined.text
     return joined.json()
@@ -66,7 +72,7 @@ async def _submit(client, token, classroom_id, **overrides):
         "remarks": "",
     }
     body.update(overrides)
-    return await client.post("/api/submissions", json=body, cookies=cookies_for(token))
+    return await client.post("/api/submissions", json=body, headers=auth(token))
 
 
 # --- authentication --------------------------------------------------------
@@ -77,19 +83,19 @@ class TestAuthenticationBoundary:
         assert (await client.get("/api/auth/me")).status_code == 401
 
     async def test_garbage_cookie_is_rejected(self, client):
-        resp = await client.get("/api/auth/me", cookies=cookies_for("not-a-real-token"))
+        resp = await client.get("/api/auth/me", headers=auth("not-a-real-token"))
         assert resp.status_code == 401
 
     async def test_tampered_cookie_is_rejected(self, client, make_user):
         _, token = await make_user("student.a2024@vitstudent.ac.in")
         # Flip a character in the signature.
         tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
-        resp = await client.get("/api/auth/me", cookies=cookies_for(tampered))
+        resp = await client.get("/api/auth/me", headers=auth(tampered))
         assert resp.status_code == 401
 
     async def test_signed_in_student_sees_their_own_identity(self, client, make_user):
         user, token = await make_user("student.a2024@vitstudent.ac.in")
-        resp = await client.get("/api/auth/me", cookies=cookies_for(token))
+        resp = await client.get("/api/auth/me", headers=auth(token))
         assert resp.status_code == 200
         assert resp.json()["email"] == user.email
         assert resp.json()["role"] == "student"
@@ -104,7 +110,7 @@ class TestAuthenticationBoundary:
         _, token = await make_user("student.a2024@vitstudent.ac.in")
         payload = session_cookie.read(token)
         assert "role" not in payload
-        resp = await client.get("/api/auth/me", cookies=cookies_for(token))
+        resp = await client.get("/api/auth/me", headers=auth(token))
         assert resp.json()["role"] == "student"
 
 
@@ -115,20 +121,20 @@ class TestRoleGating:
     async def test_student_cannot_create_a_classroom(self, client, make_user):
         _, token = await make_user("student.a2024@vitstudent.ac.in")
         resp = await client.post(
-            "/api/classrooms", json={"name": "Mine now"}, cookies=cookies_for(token)
+            "/api/classrooms", json={"name": "Mine now"}, headers=auth(token)
         )
         assert resp.status_code == 403
 
     async def test_student_cannot_list_faculty_classrooms(self, client, make_user):
         _, token = await make_user("student.a2024@vitstudent.ac.in")
         assert (
-            await client.get("/api/classrooms/mine", cookies=cookies_for(token))
+            await client.get("/api/classrooms/mine", headers=auth(token))
         ).status_code == 403
 
     async def test_student_cannot_read_the_audit_log(self, client, make_user):
         _, token = await make_user("student.a2024@vitstudent.ac.in")
         assert (
-            await client.get("/api/dashboard/audit", cookies=cookies_for(token))
+            await client.get("/api/dashboard/audit", headers=auth(token))
         ).status_code == 403
 
     async def test_faculty_cannot_join_as_a_student(self, client, make_user):
@@ -136,7 +142,7 @@ class TestRoleGating:
         resp = await client.post(
             "/api/classrooms/join",
             json={"join_code": "AAAAA-BBBBB-CCCCC-DDDDD"},
-            cookies=cookies_for(token),
+            headers=auth(token),
         )
         assert resp.status_code == 403
 
@@ -167,13 +173,13 @@ class TestStudentDataIsolation:
 
         # Bob knows the id and asks for it directly.
         stolen = await client.get(
-            f"/api/submissions/{alice_submission}", cookies=cookies_for(bob)
+            f"/api/submissions/{alice_submission}", headers=auth(bob)
         )
         assert stolen.status_code == 404
 
         # Alice can still read her own.
         own = await client.get(
-            f"/api/submissions/{alice_submission}", cookies=cookies_for(alice)
+            f"/api/submissions/{alice_submission}", headers=auth(alice)
         )
         assert own.status_code == 200
 
@@ -189,7 +195,7 @@ class TestStudentDataIsolation:
 
         await _submit(client, alice, classroom["id"])
 
-        listing = await client.get("/api/submissions/mine", cookies=cookies_for(bob))
+        listing = await client.get("/api/submissions/mine", headers=auth(bob))
         assert listing.status_code == 200
         assert listing.json()["submissions"] == []
 
@@ -222,7 +228,7 @@ class TestStudentDataIsolation:
             f"/api/dashboard/classrooms/{classroom['id']}/escalations",
             f"/api/dashboard/classrooms/{classroom['id']}/summaries",
         ):
-            resp = await client.get(path, cookies=cookies_for(prof_b))
+            resp = await client.get(path, headers=auth(prof_b))
             assert resp.status_code == 404, path
 
     async def test_student_cannot_read_summaries_at_all(
@@ -235,7 +241,7 @@ class TestStudentDataIsolation:
 
         resp = await client.get(
             f"/api/dashboard/classrooms/{classroom['id']}/summaries",
-            cookies=cookies_for(alice),
+            headers=auth(alice),
         )
         assert resp.status_code == 403
 
@@ -260,7 +266,7 @@ class TestClassroomMechanics:
             created = await client.post(
                 "/api/classrooms",
                 json={"name": "Section", "idempotency_key": str(len(codes))},
-                cookies=cookies_for(prof),
+                headers=auth(prof),
             )
             codes.add(created.json()["join_code"])
         assert len(codes) == 5
@@ -271,7 +277,7 @@ class TestClassroomMechanics:
         locked = await client.patch(
             f"/api/classrooms/{classroom['id']}/join-open",
             json={"join_open": False},
-            cookies=cookies_for(prof),
+            headers=auth(prof),
         )
         assert locked.status_code == 200
 
@@ -279,7 +285,7 @@ class TestClassroomMechanics:
         refused = await client.post(
             "/api/classrooms/join",
             json={"join_code": classroom["join_code"]},
-            cookies=cookies_for(alice),
+            headers=auth(alice),
         )
         assert refused.status_code == 403
 
@@ -292,7 +298,7 @@ class TestClassroomMechanics:
         await _enrol(client, alice, classroom["join_code"])
 
         listing = await client.get(
-            "/api/classrooms/enrolled", cookies=cookies_for(alice)
+            "/api/classrooms/enrolled", headers=auth(alice)
         )
         assert listing.status_code == 200
         for entry in listing.json()["classrooms"]:
