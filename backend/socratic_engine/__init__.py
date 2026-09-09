@@ -1,3 +1,35 @@
-"""Socratic mode engine: loads ordered official procedure steps per experiment, verifies each student intermediate step via Tier 1 shared checker types, and manages the adaptive hint ladder (escalating specificity, never revealing the final answer)."""
+"""Socratic mode: ordered steps, per-step Tier 1 verification, hint ladder.
 
-# TODO: implement
+`engine` holds the rules (pure, testable, no I/O). `chat` phrases a turn
+for the student through the answer gate. Neither computes the final
+answer during a conversation -- see `engine.compute_reveal`.
+"""
+
+from backend.socratic_engine.chat import TutorReply, tutor_reply
+from backend.socratic_engine.engine import (
+    MAX_HINT_LEVEL,
+    SessionComplete,
+    StepOutcome,
+    compute_reveal,
+    current_step,
+    handle_attempt,
+    hint_level_for,
+    present_step,
+    steps_for,
+    verify_step,
+)
+
+__all__ = [
+    "MAX_HINT_LEVEL",
+    "SessionComplete",
+    "StepOutcome",
+    "TutorReply",
+    "compute_reveal",
+    "current_step",
+    "handle_attempt",
+    "hint_level_for",
+    "present_step",
+    "steps_for",
+    "tutor_reply",
+    "verify_step",
+]
