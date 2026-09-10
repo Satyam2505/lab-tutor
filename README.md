@@ -221,7 +221,7 @@ The test suite is a deployment gate, not a claim. CI runs it on every
 push and nothing ships from a red build.
 
 ```
-285 tests + 3 explicit skips, covering:
+287 tests + 3 explicit skips, covering:
   golden dataset categories 2-5      driven from the JSON data files
   the answer gate                    structurally, not by inspecting prose
   Tier 1 checkers                    every signature rule, both endpoint geometries

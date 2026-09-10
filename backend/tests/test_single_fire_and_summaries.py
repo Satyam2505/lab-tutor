@@ -395,3 +395,49 @@ async def test_llm_health_is_a_separate_endpoint(client, fake_llm):
     resp = await client.get("/health/llm")
     assert resp.status_code in (200, 503)
     assert "degraded_behaviour" in resp.json()
+
+
+# --- configuration completeness --------------------------------------------
+
+
+class TestEnvExampleIsComplete:
+    """`.env.example` is the deployment procedure, so it must be exhaustive.
+
+    Regression: LABTUTOR_DOMAIN and LABTUTOR_TLS_EMAIL drive certificate
+    issuance but were absent, so following the README produced a stack
+    silently serving localhost with a self-signed certificate.
+    """
+
+    @staticmethod
+    def _example_keys() -> set[str]:
+        import pathlib
+        import re
+
+        root = pathlib.Path(__file__).resolve().parents[2]
+        text = (root / ".env.example").read_text(encoding="utf-8")
+        # Commented-out optional keys count as documented.
+        return set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, re.M))
+
+    def test_every_setting_read_by_config_is_documented(self):
+        import pathlib
+        import re
+
+        root = pathlib.Path(__file__).resolve().parents[2]
+        config = (root / "backend" / "config.py").read_text(encoding="utf-8")
+        aliases = set(re.findall(r'alias="([A-Z][A-Z0-9_]+)"', config))
+        missing = aliases - self._example_keys()
+        assert not missing, f"undocumented settings: {sorted(missing)}"
+
+    def test_every_variable_the_stack_interpolates_is_documented(self):
+        import pathlib
+        import re
+
+        root = pathlib.Path(__file__).resolve().parents[2]
+        referenced: set[str] = set()
+        for name in ("docker-compose.yml", "Caddyfile"):
+            text = (root / "infra" / name).read_text(encoding="utf-8")
+            referenced |= set(re.findall(r"\$\{?([A-Z][A-Z0-9_]+)", text))
+        # POSTGRES_* are consumed inside the db container's own healthcheck.
+        referenced -= {"POSTGRES_USER", "POSTGRES_DB"}
+        missing = referenced - self._example_keys()
+        assert not missing, f"variables the stack needs but .env.example omits: {sorted(missing)}"
