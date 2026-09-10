@@ -330,6 +330,30 @@ class TestClassroomMechanics:
         resp = await _submit(client, alice, classroom["id"])
         assert resp.status_code == 409
 
+    async def test_malformed_submission_returns_a_validation_error(
+        self, client, make_user, fake_llm, registered_experiment
+    ):
+        """The invalid path must return a clean error, not blow up.
+
+        Regression test: this path built a Diagnosis with an explicit
+        RemedialAction that was never imported, so any student submitting
+        a malformed number got a 500 instead of being told what was wrong.
+        """
+        _, prof = await make_user("prof@vit.ac.in")
+        classroom = await _make_classroom(client, prof)
+        _, alice = await make_user("student.a2024@vitstudent.ac.in")
+        await _enrol(client, alice, classroom["join_code"])
+
+        bad = dict(STUDENT_DATA)
+        bad["titre_volume"] = "12,34"  # ambiguous decimal comma
+        resp = await _submit(client, alice, classroom["id"], data=bad)
+
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["status"] == "invalid"
+        assert "titre_volume" in body["explanation"]
+        assert body["action"] == "fix_in_place"
+
     async def test_submission_refused_when_not_enrolled(
         self, client, make_user, registered_experiment
     ):

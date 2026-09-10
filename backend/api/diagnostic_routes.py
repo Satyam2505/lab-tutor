@@ -16,7 +16,14 @@ from backend.auth.dependencies import student_scope
 from backend.data_access import StudentScope
 from backend.db import get_session
 from backend.extraction import extract_submission
-from backend.models import Classroom, Diagnosis, DiagnosisStatus, Escalation, Submission
+from backend.models import (
+    Classroom,
+    Diagnosis,
+    DiagnosisStatus,
+    Escalation,
+    RemedialAction,
+    Submission,
+)
 from backend.pipeline import run_diagnosis
 from backend.tier1_compute.experiments import UnknownExperimentError, get_plugin
 
@@ -94,15 +101,21 @@ async def submit(
         return claim.replayed_response or {}
 
     # --- extraction -------------------------------------------------------
-    numeric_keys = tuple(
-        k for k, v in body.data.items() if not isinstance(v, (list, tuple))
-    )
+    # Structured (dict) fields pass through untouched: Experiments 7 and 8
+    # report a mapping of conformer -> energy, which is not a scalar or a
+    # series and must not be handed to the numeric parser.
+    structured_keys = tuple(k for k, v in body.data.items() if isinstance(v, dict))
     series_keys = tuple(
         k for k, v in body.data.items() if isinstance(v, (list, tuple))
+    )
+    numeric_keys = tuple(
+        k for k in body.data if k not in structured_keys and k not in series_keys
     )
     extracted = extract_submission(
         body.data, numeric_fields=numeric_keys, series_fields=series_keys
     )
+    for key in structured_keys:
+        extracted.values[key] = body.data[key]
 
     reported: float | None = None
     if body.reported_value is not None:
@@ -133,6 +146,9 @@ async def submit(
             tier=1,
             reported_value=reported,
             detail={"errors": extracted.errors},
+            # Set explicitly: the column default is only applied on insert,
+            # and this row is serialised into the response before flushing.
+            action=RemedialAction.FIX_IN_PLACE,
             phrased_text="This submission could not be checked: "
             + "; ".join(extracted.errors),
         )
