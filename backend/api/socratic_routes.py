@@ -375,12 +375,30 @@ async def reveal(
     session = await _load_session(scope, session_id)
     plugin = _plugin_for(session)
 
+    # The student's own derived answer, so the reveal can set it beside the
+    # independently computed value rather than just announcing a number.
+    # Taken from the attempt that passed the final step -- the only value
+    # they actually stood behind.
+    final_step_index = max(len(steps_for(plugin)) - 1, 0)
+    derived = (
+        await db.scalars(
+            select(SocraticAttempt.submitted_value)
+            .where(
+                SocraticAttempt.session_id == session.id,
+                SocraticAttempt.step_index == final_step_index,
+                SocraticAttempt.passed.is_(True),
+            )
+            .order_by(SocraticAttempt.created_at.desc())
+            .limit(1)
+        )
+    ).first()
+
     try:
         text = compute_reveal(
             plugin,
             all_steps_complete=session.all_steps_complete,
             student_data=session.student_data or {},
-            student_final_value=None,
+            student_final_value=derived,
         )
     except PrematureRevealError:
         # Deliberately the same response whatever the reason, so probing

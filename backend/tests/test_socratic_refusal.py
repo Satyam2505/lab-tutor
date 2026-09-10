@@ -297,3 +297,20 @@ async def test_student_own_numbers_survive_the_gate(fake_llm, plugin):
     )
     assert "24.7" in reply.text
     assert not reply.redacted
+
+
+async def test_reveal_sets_the_students_own_answer_beside_the_computed_one(plugin):
+    """The reveal is a comparison, not just an announcement.
+
+    The spec asks for the student's own derived answer to be compared
+    against the independently computed value at this final point, so the
+    reveal must carry both numbers.
+    """
+    text = compute_reveal(
+        plugin,
+        all_steps_complete=True,
+        student_data=STUDENT_DATA,
+        student_final_value=0.124,
+    )
+    assert f"{EXPECTED_FINAL_VALUE:g}" in text, "computed value missing"
+    assert "0.124" in text, "the student's own derived answer is missing"
