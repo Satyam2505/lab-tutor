@@ -5,12 +5,15 @@ data flow, and stack. Any implementation decision that contradicts
 this document should either update this document (with a note on why)
 or be treated as a bug.
 
-> **TODO**: this document was written during repo scaffolding, before
-> the BACHY105 manual PDF was present in the repo. The experiment
-> list, exact formula shapes, and worked-example numbers below are
-> placeholders/structural only — re-derive the actual experiment
-> count, names, and formulas from whatever manual file is actually
-> committed at the repo root before building Tier 1 plugins.
+> **Manual status (updated during the build session).** The BACHY105 PDF
+> is still not in the repository. Rather than guess, the build treats
+> this as a hard blocker for numeric content only: all eight numeric
+> experiments are registered as `PendingManualPlugin` and raise on use,
+> so a submission escalates to human review instead of receiving an
+> invented diagnosis. Everything structural around them is built and
+> tested. The experiment names and numbering below — including which
+> two experiments are the computational ones — remain unverified.
+> See README → "What the manual unblocks".
 
 ## 1. Pipeline overview
 
@@ -125,7 +128,7 @@ Student submits finished record
 
 | Piece | Pilot (2-week timeline) | Full vision (deferred) |
 |---|---|---|
-| Experiment coverage | 2 experiments (TODO: confirm which 2 once manual is in repo — see scope-conflict TODO below) | Remaining experiments, up to all assessed experiments in the manual |
+| Experiment coverage | All 10 assessed experiments, via the templated plugin system (scope conflict resolved — see below) | No further experiments; the plugin system is the extension point |
 | Tier 1 (deterministic compute + signature detection) | Full — built for the pilot experiments via shared checker types | Extended to all remaining experiments; Experiments 7/8-equivalent (non-numeric, method-choice experiments) stay stub-escalate permanently, by design, not as a pilot cut |
 | Tier 2 (known-mistake library) | Seeded with a handful of manually-entered known mistakes per pilot experiment | Adaptive growth: TAs add newly-observed mistakes over time via a curation workflow |
 | Tier 3 (escalation) | Blanket escalation to a review queue — no confidence calibration, every abstain looks the same | Calibrated confidence model, possibly prioritizing the queue by likely severity/frequency |
@@ -134,15 +137,50 @@ Student submits finished record
 | Auth | Full (both roles, env-configured domains, server-side enforcement) | Same — no deferred scope here |
 | Classrooms | Full (persistent, class-code join, active-experiment tagging) | Same — no deferred scope here |
 
-> **TODO — scope conflict to resolve with the team before Commit 6 /
-> second build session**: the planning discussion that produced this
-> scaffolding request describes the pilot as covering "ALL 10 assessed
-> experiments from the manual" with a templated plugin system, but
-> separately specifies the README/status text as "2 experiments,
-> scoped down from a 5-experiment vision." These two scope statements
-> are inconsistent. Do not silently pick one — confirm the real pilot
-> experiment count against the actual manual and the team's current
-> plan before building Tier 1 plugins.
+> **RESOLVED — scope conflict.** The scaffolding flagged that the plan
+> said both "all 10 assessed experiments, templated" and "2 experiments,
+> scoped down from a 5-experiment vision". The build session took **10**,
+> because the brief's scope section states it explicitly and at length
+> (naming the shared checker types and the thin-plugin structure that
+> only make sense across many experiments), while the two-experiment
+> line survives only in a leftover status sentence. The choice is cheap
+> either way: with the templated system, an experiment is a config file,
+> so the cost of ten slots over two is eight small files — currently
+> eight loud stubs. Say so if this is backwards.
+
+### 2.1 Amendment: Experiments 7 and 8 are not blanket stubs
+
+CLAUDE.md and the original version of this document said the two
+computational experiments get "a stub that always escalates to Tier 3,
+not an LLM judgment call". The build session deviated, deliberately, and
+this section records why — per the amendment rule at the top of this
+file.
+
+What was built instead (`QualitativeOrderingPlugin`):
+
+- The conformer **energy ordering** is checked **deterministically** —
+  staggered below eclipsed, chair below boat. No model is involved in
+  that check, so the hard rule in CLAUDE.md is not weakened: a machine
+  contradiction is still found by arithmetic.
+- A consistent ordering is **not** a pass. It returns `NOT_APPLICABLE`
+  and escalates, because ordering being right is necessary but not
+  sufficient for the thing these experiments actually assess.
+- A model may add a short note on the student's method narrative
+  (`backend/rag/qualitative.py`). It is always marked low-confidence,
+  can never produce a pass, and escalates on any failure.
+
+Why deviate at all: a blanket stub gives a demonstrator no more
+information than "look at this", for every single submission. Checking
+the ordering deterministically is free, is reproducible, and catches the
+common concrete error (swapped geometries, an unconverged job) before it
+reaches a human.
+
+Why keep it contained: this is the only place a model contributes to a
+judgment. `qualitative_note` raises for any experiment id outside
+`{exp07, exp08}`, and a test asserts exactly two plugins are of this
+kind. If a third experiment appears to need this, that is a signal the
+experiment needs a deterministic checker — not that the exception should
+grow.
 
 ## 3. Data flow diagram
 
@@ -214,7 +252,10 @@ Student submits finished record
 
 ## 4. Stack
 
-**Recommended** (confirm with team before treating as final):
+**CONFIRMED** by the build session. The scaffolding left this as a
+recommendation requiring explicit confirmation; it is confirmed as
+written below, with the LLM provider left deliberately unfixed (it is an
+endpoint URL in the environment, not a name in the code).
 
 - **Backend**: FastAPI (Python) — matches the Tier 1 compute work
   being numeric/scientific Python, and keeps extraction/tier1/tier2/
@@ -233,15 +274,28 @@ Student submits finished record
   exists so development and offline testing don't require a hosted
   API key, not as a deployment target for real student traffic.
 
-This stack is a recommendation from the scaffolding session, not a
-locked-in decision — the second build session should confirm it (or
-override it) explicitly rather than silently assuming it.
+Confirmed as above. The one refinement worth recording: the "hosted LLM
+API" slot is provider-agnostic in code. Any OpenAI-compatible
+`/chat/completions` endpoint works, supplied as `LABTUTOR_LLM_BASE_URL`,
+so swapping providers mid-pilot is an environment change and a restart.
 
 ## 5. Folder structure
 
 See the repo root for the actual scaffolded structure. Summary of
 what owns what (also see [AGENTS.md](../AGENTS.md) for the
 corresponding development roles):
+
+Three packages were added during the build that the scaffolding did not
+anticipate, listed first:
+
+- `/backend/answer_gate` — the single component every outbound student
+  response passes through, and the home of the reveal guarantee. Read its
+  module docstring before changing anything in Socratic mode.
+- `/backend/llm` — the swappable hosted/Ollama backend interface. Shared
+  infrastructure rather than role-owned, because both `rag/` and
+  `summaries/` need it. Nothing in `tier1_compute/` may import it.
+- `/backend/api` — HTTP routes. All logic lives in the packages they
+  import; these files are wiring, validation and persistence only.
 
 - `/backend/extraction` — parsing submissions into structured fields
 - `/backend/tier1_compute/shared` — reusable checker types:

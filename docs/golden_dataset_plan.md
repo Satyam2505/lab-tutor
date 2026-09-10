@@ -7,14 +7,19 @@ spec) is that session's job. This file exists so `test-builder` (see
 [AGENTS.md](../AGENTS.md)) has a concrete target instead of inventing
 test coverage ad hoc.
 
-> **TODO**: this spec was written before the BACHY105 manual PDF was
-> confirmed present in the repo, and before the pilot experiment
-> count/list was resolved (see the scope-conflict TODO in
-> [ARCHITECTURE.md](ARCHITECTURE.md)). Every category below that
-> references "per experiment" or "the manual's worked examples" must
-> be re-derived against whichever manual file actually ends up at the
-> repo root — do not reuse any experiment numbering or formula
-> guesses from earlier planning discussions.
+> **BUILD STATUS.** The dataset now exists under `/golden_dataset`.
+> Categories 2-5 are populated and drive the test suite. Category 1 is
+> deliberately empty: it is defined as the manual's own worked examples,
+> the manual is still absent, and inventing ground truth would make every
+> test passing against it meaningless. See
+> `golden_dataset/category1_worked_examples/README.md` for the
+> transcription procedure.
+>
+> The scope conflict is resolved (10 experiments — see
+> [ARCHITECTURE.md §2](ARCHITECTURE.md)). Category 2 is generated against
+> *reference checker configurations* rather than real plugins, since the
+> plugins await the manual; its numbers are arbitrary and must never be
+> copied into an experiment file.
 
 ## Category 1 — Known-correct worked examples
 

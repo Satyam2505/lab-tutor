@@ -47,3 +47,10 @@ Thumbs.db
 # --- Misc build artifacts ---
 *.log
 .cache/
+
+# --- Course material ---
+# The manual is the source of truth for every formula in this system, but
+# it is the department's material; whether it may be redistributed is
+# their call. Keep the directory, ignore the PDF. See manual/README.md.
+manual/*.pdf
+manual/*.PDF
