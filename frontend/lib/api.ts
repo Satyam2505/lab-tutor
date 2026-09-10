@@ -95,6 +95,13 @@ export interface Experiment {
   manual_reference: string;
 }
 
+export type TutorIntent =
+  | "lab_question"
+  | "safety_incident"
+  | "safety_question"
+  | "distress"
+  | "off_scope";
+
 export interface SocraticState {
   session_id: string;
   experiment_id: string;

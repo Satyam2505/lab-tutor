@@ -11,11 +11,19 @@ import {
   type Classroom,
   type SocraticState,
   type SubmissionResult,
+  type TutorIntent,
 } from "@/lib/api";
 
 interface Message {
   author: "student" | "tutor";
   content: string;
+  /** Set on tutor turns that were triaged, so safety replies stand out. */
+  intent?: TutorIntent;
+}
+
+/** Safety replies must not look like one more hint in the stream. */
+function isUrgent(intent?: TutorIntent) {
+  return intent === "safety_incident" || intent === "safety_question";
 }
 
 export default function StudentPage() {
@@ -308,7 +316,11 @@ function SocraticPanel({ classroom }: { classroom: Classroom }) {
         </p>
         <div className="chat">
           {messages.map((m, i) => (
-            <div key={i} className={`msg msg-${m.author}`}>
+            <div
+              key={i}
+              className={`msg msg-${m.author}${isUrgent(m.intent) ? " msg-urgent" : ""}`}
+            >
+              {isUrgent(m.intent) && <strong>Stop and get your demonstrator. </strong>}
               {m.content}
             </div>
           ))}
@@ -329,11 +341,14 @@ function SocraticPanel({ classroom }: { classroom: Classroom }) {
             setDraft("");
             setMessages((m) => [...m, { author: "student", content: text }]);
             try {
-              const r = await api.post<{ reply: string }>(
+              const r = await api.post<{ reply: string; intent: TutorIntent }>(
                 `/api/socratic/session/${state.session_id}/message`,
                 { message: text },
               );
-              setMessages((m) => [...m, { author: "tutor", content: r.reply }]);
+              setMessages((m) => [
+                ...m,
+                { author: "tutor", content: r.reply, intent: r.intent },
+              ]);
             } catch (e) {
               setMessages((m) => [
                 ...m,

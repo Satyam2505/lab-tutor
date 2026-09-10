@@ -116,6 +116,13 @@ th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
 .msg { padding: 9px 12px; border-radius: var(--radius); max-width: 82%; }
 .msg-student { align-self: flex-end; background: var(--accent-weak); }
 .msg-tutor { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
+/* A safety reply must not read as one more hint in the stream. */
+.msg-urgent {
+  background: var(--danger-weak);
+  border: 2px solid var(--danger);
+  color: var(--danger);
+  max-width: 100%;
+}
 
 .progress { height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; }
 .progress > div { height: 100%; background: var(--accent); transition: width 0.3s; }

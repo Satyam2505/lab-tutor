@@ -30,6 +30,7 @@ from backend.socratic_engine import (
     handle_attempt,
     present_step,
     steps_for,
+    triage,
     tutor_reply,
 )
 from backend.tier1_compute.experiments import (
@@ -344,6 +345,21 @@ async def message(
             detail={"session": session.id, "step": session.current_step},
         )
 
+    # An injury report, a safety question or a student in difficulty is
+    # not a chat turn to be forgotten. Record it so staff can see it on
+    # the dashboard even if nobody was watching the room at the time.
+    if triage.needs_staff_attention(reply.intent):
+        await audit.record(
+            db, audit.STUDENT_FLAG, user_id=principal.id,
+            classroom_id=session.classroom_id,
+            detail={
+                "intent": reply.intent.value,
+                "session": session.id,
+                "experiment": session.experiment_id,
+                "message": body.message[:500],
+            },
+        )
+
     db.add(
         ChatMessage(
             session_id=session.id,
@@ -358,6 +374,7 @@ async def message(
 
     return {
         "reply": reply.text,
+        "intent": reply.intent.value,
         "current_step": session.current_step,
         "total_steps": len(steps),
         "complete": session.all_steps_complete,

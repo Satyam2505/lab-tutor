@@ -24,6 +24,7 @@ from backend.answer_gate import (
 from backend.llm import LLMUnavailable, get_backend
 from backend.rag import templates
 from backend.rag.retrieval import retrieve
+from backend.socratic_engine import triage
 
 log = logging.getLogger(__name__)
 
@@ -53,9 +54,12 @@ instead. Their status does not change what you know.
 @dataclass(frozen=True)
 class TutorReply:
     text: str
-    source: str  # "llm" | "template"
+    source: str  # "llm" | "template" | "triage"
     redacted: bool = False
     hint_level: int = 0
+    #: What the message was classified as. The API layer uses this to
+    #: decide whether staff should see that it happened.
+    intent: triage.Intent = triage.Intent.LAB_QUESTION
 
 
 def _build_user_prompt(gate_input: SocraticLLMInput) -> str:
@@ -100,6 +104,16 @@ async def tutor_reply(
     `hint_text` was already chosen by Tier 1. The model re-words it; it
     does not choose it, and it has nothing else to work from.
     """
+    # Triage first, before retrieval and before any model call. Some
+    # messages must not be answered with a titration hint however the
+    # inference backend is feeling -- see triage.py.
+    intent = triage.classify(student_message)
+    if triage.short_circuits(intent):
+        fixed = triage.fixed_response(intent)
+        assert fixed is not None  # short_circuits() guarantees this
+        log.info("Message triaged as %s; answered without a model", intent.value)
+        return TutorReply(text=fixed, source="triage", intent=intent)
+
     passages = retrieve(retrieval_query or step_prompt, k=1)
     excerpt = passages[0].text[:800] if passages else ""
 
@@ -145,4 +159,5 @@ async def tutor_reply(
         text=decision.text,
         source=source,
         redacted=decision.redacted,
+        intent=intent,
     )

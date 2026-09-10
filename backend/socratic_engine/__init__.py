@@ -5,7 +5,9 @@ for the student through the answer gate. Neither computes the final
 answer during a conversation -- see `engine.compute_reveal`.
 """
 
+from backend.socratic_engine import triage
 from backend.socratic_engine.chat import TutorReply, tutor_reply
+from backend.socratic_engine.triage import Intent
 from backend.socratic_engine.engine import (
     MAX_HINT_LEVEL,
     SessionComplete,
@@ -23,7 +25,9 @@ __all__ = [
     "MAX_HINT_LEVEL",
     "SessionComplete",
     "StepOutcome",
+    "Intent",
     "TutorReply",
+    "triage",
     "compute_reveal",
     "current_step",
     "handle_attempt",

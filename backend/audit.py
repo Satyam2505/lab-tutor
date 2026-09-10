@@ -31,6 +31,9 @@ AUTH_SUCCESS = "auth.success"
 ANSWER_GATE_REDACTION = "answer_gate.redaction"
 REVEAL_GRANTED = "socratic.reveal"
 RATE_LIMITED = "ratelimit.blocked"
+#: A student reported an injury, asked whether something was safe, or
+#: said something a hint will not fix. Staff need to be able to see these.
+STUDENT_FLAG = "socratic.student_flag"
 SUMMARY_JOB = "summary.job"
 IDEMPOTENT_REPLAY = "idempotency.replay"
 

@@ -90,6 +90,37 @@ that has been talking to the student.
 
 See [`backend/answer_gate/`](backend/answer_gate/__init__.py).
 
+### Handling what students actually ask
+
+Category 6 of the golden dataset is ~100 real questions: genuine
+procedural ones, very basic ones, inarticulate ones ("???", "im stuck"),
+nonsense, off-scope requests, meta questions, answer-fishing, distress,
+and injury reports.
+
+Most of it flows to the ordinary hint path on purpose. **A first-year
+asking "what is a burette" is the tool working**, and a brush-off there is
+a product failure, not a correct refusal.
+
+Four intents short-circuit before any model call
+(`backend/socratic_engine/triage.py`): an injury report, a "is this safe
+to do" question, a student in real difficulty, and a clearly off-scope
+request. Each gets a fixed response, and the first three are written to
+the audit log so staff can see they happened.
+
+Safety is deterministic for the same reason Tier 1 is. Before this
+existed, with the inference backend down — a documented, expected
+degraded mode — *"i spilled acid on my hand"* was answered with *"Check
+the label on the standard solution again."* That is not a wording problem
+in a room containing acid, and it must not depend on a model being
+reachable.
+
+The classifier is tuned for **precision over recall**: a missed off-scope
+question costs nothing, while a false positive refuses a real chemistry
+question. Held-out phrasings in the test suite enforce that — they caught
+one genuine false positive, since "bleed the air out of the burette tip"
+is ordinary titration vocabulary, and one genuine miss, since "acid went
+on my arm" contains no spill verb at all.
+
 ### Experiments 7 and 8
 
 These assess a *computational method choice* (ORCA / orbital work), not a
@@ -221,8 +252,8 @@ The test suite is a deployment gate, not a claim. CI runs it on every
 push and nothing ships from a red build.
 
 ```
-287 tests + 3 explicit skips, covering:
-  golden dataset categories 2-5      driven from the JSON data files
+655 tests + 3 explicit skips, covering:
+  golden dataset categories 2-6      driven from the JSON data files
   the answer gate                    structurally, not by inspecting prose
   Tier 1 checkers                    every signature rule, both endpoint geometries
   auth + data isolation              real ASGI requests, real signed cookies
@@ -308,6 +339,11 @@ Genuine gaps, listed because a pilot report needs them:
   student may believe it. Authoritative confirmation comes only from step
   verification. Tested in
   `backend/tests/test_socratic_refusal.py::test_a_guessed_value_is_never_confirmed_by_the_system`.
+- **Safety triage is pattern-based, not a model.** That is deliberate --
+  it must work with inference down -- but it means unusual phrasing can
+  fall through to the ordinary hint path. It is a safety net over the
+  demonstrator in the room, never a replacement for one, and the README
+  for staff should say so during induction.
 - **Tier 2 matches on keywords** in student remarks. It will miss a
   mistake described in unusual words. It fails toward escalation, which
   is the safe direction.
