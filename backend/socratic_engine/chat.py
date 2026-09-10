@@ -18,8 +18,8 @@ from dataclasses import dataclass
 
 from backend.answer_gate import (
     SocraticLLMInput,
+    filter_outbound,
     prepare_socratic_input,
-    scrub_outbound,
 )
 from backend.llm import LLMUnavailable, get_backend
 from backend.rag import templates
@@ -129,8 +129,9 @@ async def tutor_reply(
 
     # Outbound gate: a hint may echo numbers the student or the step
     # already put on the table, but may not introduce one.
-    decision = scrub_outbound(
+    decision = filter_outbound(
         text,
+        mode="socratic",
         all_steps_complete=all_steps_complete,
         permitted_sources=(student_message, step_prompt, hint_text, excerpt),
     )

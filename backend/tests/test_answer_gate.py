@@ -13,7 +13,9 @@ import dataclasses
 import pytest
 
 from backend.answer_gate import (
+    MAX_OUTBOUND_CHARS,
     PrematureRevealError,
+    filter_outbound,
     SocraticLLMInput,
     assert_gate_invariant,
     build_reveal,
@@ -165,3 +167,53 @@ class TestOutboundScrub:
             text, all_steps_complete=False, permitted_sources=("Do the calculation.",)
         )
         assert decision.redacted
+
+
+class TestGateIsTheSingleOutboundChokePoint:
+    """`filter_outbound` is the one door every student-facing message uses."""
+
+    def test_unknown_mode_is_refused(self):
+        with pytest.raises(ValueError):
+            filter_outbound("hello", mode="whatever")
+
+    def test_socratic_mode_strips_a_novel_number(self):
+        decision = filter_outbound(
+            "The value is 0.125.",
+            mode="socratic",
+            all_steps_complete=False,
+            permitted_sources=("Report the endpoint.",),
+        )
+        assert decision.redacted
+        assert "0.125" not in decision.text
+
+    def test_diagnostic_mode_discloses_the_recomputed_value(self):
+        """The student has finished; withholding it here defeats the point."""
+        decision = filter_outbound(
+            "Recomputing from your readings gives 0.125, but you reported 0.08.",
+            mode="diagnostic",
+        )
+        assert not decision.redacted
+        assert "0.125" in decision.text
+        assert "0.08" in decision.text
+
+    def test_both_modes_strip_control_characters(self):
+        hostile = "Your result\x00 is inconsistent\x07 with your readings."
+        for mode in ("socratic", "diagnostic"):
+            decision = filter_outbound(hostile, mode=mode)
+            assert "\x00" not in decision.text
+            assert "\x07" not in decision.text
+
+    def test_both_modes_strip_direction_overrides(self):
+        for mode in ("socratic", "diagnostic"):
+            decision = filter_outbound("check\u202e this", mode=mode)
+            assert "\u202e" not in decision.text
+
+    def test_both_modes_cap_length(self):
+        for mode in ("socratic", "diagnostic"):
+            decision = filter_outbound("A" * 10_000, mode=mode)
+            assert len(decision.text) <= MAX_OUTBOUND_CHARS + 8
+
+    def test_newlines_survive_sanitisation(self):
+        """A two-line summary must stay two lines."""
+        decision = filter_outbound("line one\nline two", mode="diagnostic")
+        assert decision.text == "line one\nline two"

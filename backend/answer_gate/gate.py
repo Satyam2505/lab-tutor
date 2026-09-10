@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -173,6 +174,71 @@ def build_reveal(
         if tolerance_description:
             lines.append(f"Agreement was assessed at {tolerance_description}.")
     return " ".join(lines)
+
+
+#: Longest student-facing message the gate will emit. A model talked into
+#: producing a wall of text should not become a wall of text on a phone in
+#: a lab.
+MAX_OUTBOUND_CHARS = 2000
+
+
+def sanitise_outbound(text: str) -> str:
+    """Strip anything that should never reach a student's screen.
+
+    Control characters and direction overrides can come back out of a
+    model that was fed them, and would render as invisible or
+    right-to-left text in the UI. Applied to every outbound message
+    regardless of mode.
+    """
+    if not text:
+        return ""
+    cleaned = "".join(
+        ch for ch in text if ch in "\n\t" or not unicodedata.category(ch).startswith("C")
+    )
+    cleaned = cleaned.replace("‮", "").replace("‭", "")
+    if len(cleaned) > MAX_OUTBOUND_CHARS:
+        cleaned = cleaned[:MAX_OUTBOUND_CHARS].rstrip() + " […]"
+    return cleaned.strip()
+
+
+def filter_outbound(
+    text: str,
+    *,
+    mode: str,
+    all_steps_complete: bool = False,
+    permitted_sources: tuple[str, ...] = (),
+) -> GateDecision:
+    """The single entry point every student-facing message passes through.
+
+    Two modes, because the two have genuinely different disclosure rules:
+
+    ``socratic``
+        The student is mid-experiment. Numbers they have not already seen
+        are stripped (`scrub_outbound`), because the whole point is that
+        they derive the value themselves.
+
+    ``diagnostic``
+        The student has finished and submitted. The recomputed value is
+        theirs to see -- withholding it here would defeat the purpose --
+        so numbers are left alone and only sanitisation applies.
+
+    Routing both through one function is what makes "every outbound
+    response passes through the gate" a fact about the code rather than a
+    claim about intent.
+    """
+    if mode not in ("socratic", "diagnostic"):
+        raise ValueError(f"unknown gate mode: {mode!r}")
+
+    cleaned = sanitise_outbound(text)
+
+    if mode == "diagnostic":
+        return GateDecision(text=cleaned, reason="diagnostic_disclosure_permitted")
+
+    return scrub_outbound(
+        cleaned,
+        all_steps_complete=all_steps_complete,
+        permitted_sources=permitted_sources,
+    )
 
 
 def scrub_outbound(

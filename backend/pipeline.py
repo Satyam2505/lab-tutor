@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from backend import tier3_escalation as tier3
+from backend.answer_gate import filter_outbound
 from backend.models import DiagnosisStatus, RemedialAction
 from backend.rag.phrasing import phrase_diagnosis
 from backend.tier1_compute.experiments.registry import (
@@ -183,7 +184,15 @@ async def run_diagnosis(
         student_text=student_text,
         retrieval_query=f"{plugin.title} {result.signature_code or ''}".strip(),
     )
-    outcome.phrased_text = phrased.text
+    # Every student-facing message leaves through the answer gate, this
+    # one included. Diagnostic mode legitimately discloses the recomputed
+    # value -- the student has finished -- so numbers are left alone and
+    # only sanitisation applies. Routing it here anyway is what makes the
+    # gate the single outbound choke point rather than a Socratic-only
+    # detail.
+    gated = filter_outbound(phrased.text, mode="diagnostic")
+
+    outcome.phrased_text = gated.text
     outcome.phrasing_source = phrased.source
     outcome.citation = phrased.citation
     return outcome

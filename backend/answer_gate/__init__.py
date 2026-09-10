@@ -31,23 +31,29 @@ conversing with the student.
 """
 
 from backend.answer_gate.gate import (
+    MAX_OUTBOUND_CHARS,
     GateDecision,
     PrematureRevealError,
     SocraticLLMInput,
     assert_gate_invariant,
     build_reveal,
+    filter_outbound,
     may_reveal,
     prepare_socratic_input,
+    sanitise_outbound,
     scrub_outbound,
 )
 
 __all__ = [
+    "MAX_OUTBOUND_CHARS",
     "GateDecision",
     "PrematureRevealError",
     "SocraticLLMInput",
     "assert_gate_invariant",
     "build_reveal",
+    "filter_outbound",
     "may_reveal",
     "prepare_socratic_input",
+    "sanitise_outbound",
     "scrub_outbound",
 ]

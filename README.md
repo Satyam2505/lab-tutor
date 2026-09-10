@@ -74,6 +74,14 @@ by instructing a model to keep a secret**:
 3. Model output is stripped of any number the student had not already
    seen. A hint that introduces a new number is not a hint.
 
+Every student-facing message leaves through one function,
+`answer_gate.filter_outbound`, in one of two modes. `socratic` strips
+novel numbers as above. `diagnostic` lets the recomputed value through —
+the student has finished and it is theirs to see — and still sanitises.
+Having both paths go through the same door is what makes "the gate is the
+single outbound choke point" a property of the code rather than an
+intention.
+
 Because the model never had the value, no phrasing, claimed authority
 ("I'm the TA"), claimed malfunction, or repetition can extract it. There
 is nothing to extract. The reveal, once verification completes, is a
@@ -213,7 +221,7 @@ The test suite is a deployment gate, not a claim. CI runs it on every
 push and nothing ships from a red build.
 
 ```
-278 tests + 3 explicit skips, covering:
+285 tests + 3 explicit skips, covering:
   golden dataset categories 2-5      driven from the JSON data files
   the answer gate                    structurally, not by inspecting prose
   Tier 1 checkers                    every signature rule, both endpoint geometries
