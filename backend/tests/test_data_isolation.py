@@ -453,3 +453,71 @@ class TestRateLimiting:
         assert 429 in statuses, f"rate limit never engaged: {statuses}"
         limited = next(s for s in statuses if s == 429)
         assert limited == 429
+
+
+class TestEveryAwaitReviewCaseReachesAHuman:
+    """A student told to wait for a demonstrator must reach the queue.
+
+    Regression: only an ESCALATED status used to create a queue row. A
+    violated conformer ordering on Experiments 7/8 is a determinate FAIL
+    whose remedy is nonetheless review, so it was diagnosed, told the
+    student to wait, and never appeared on anyone's list.
+    """
+
+    async def test_violated_ordering_appears_in_the_review_queue(
+        self, client, make_user, fake_llm
+    ):
+        _, prof = await make_user("prof@vit.ac.in")
+        classroom = await _make_classroom(client, prof, experiment_id="exp07")
+        _, alice = await make_user("student.a2024@vitstudent.ac.in")
+        await _enrol(client, alice, classroom["join_code"])
+
+        created = await client.post(
+            "/api/submissions",
+            json={
+                "classroom_id": classroom["id"],
+                # Staggered reported above eclipsed: contradicted ordering.
+                "data": {
+                    "energies": {
+                        "ethane_staggered": -79.7,
+                        "ethane_eclipsed": -79.8,
+                    }
+                },
+                "reported_value": None,
+                "remarks": "",
+            },
+            headers=auth(alice),
+        )
+        assert created.status_code == 201, created.text
+        body = created.json()
+        assert body["status"] == "fail"
+        assert body["action"] == "await_review"
+
+        queue = await client.get(
+            f"/api/dashboard/classrooms/{classroom['id']}/escalations",
+            headers=auth(prof),
+        )
+        assert queue.status_code == 200
+        rows = queue.json()["escalations"]
+        assert len(rows) == 1, "an await_review case did not reach the queue"
+        assert rows[0]["student_email"] == "student.a2024@vitstudent.ac.in"
+
+    async def test_an_ordinary_fail_does_not_flood_the_queue(
+        self, client, make_user, fake_llm, registered_experiment
+    ):
+        """Only await_review cases queue -- a fixable slip is not review work."""
+        _, prof = await make_user("prof@vit.ac.in")
+        classroom = await _make_classroom(client, prof)
+        _, alice = await make_user("student.a2024@vitstudent.ac.in")
+        await _enrol(client, alice, classroom["join_code"])
+
+        # Off by a factor of ten: diagnosed, fixable at the desk.
+        created = await _submit(client, alice, classroom["id"], reported_value=1.25)
+        assert created.status_code == 201
+        assert created.json()["action"] == "fix_in_place"
+
+        queue = await client.get(
+            f"/api/dashboard/classrooms/{classroom['id']}/escalations",
+            headers=auth(prof),
+        )
+        assert queue.json()["escalations"] == []

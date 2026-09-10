@@ -190,13 +190,24 @@ async def submit(
     db.add(diagnosis)
     await db.flush()
 
-    if outcome.escalated:
+    # Anything that tells the student to wait for a demonstrator must
+    # actually reach one. That includes a Tier 3 abstention and also a
+    # determinate finding whose remedy is review -- a violated conformer
+    # ordering on Experiments 7/8 is a FAIL, not an escalation, but its
+    # action is await_review, and a student told to wait for someone who
+    # never sees the case is worse than no diagnosis at all.
+    needs_human = outcome.escalated or outcome.action is RemedialAction.AWAIT_REVIEW
+    if needs_human:
         db.add(
             Escalation(
                 diagnosis_id=diagnosis.id,
                 classroom_id=body.classroom_id,
                 student_id=principal.id,
-                reason=outcome.escalate_reason or "unresolved",
+                reason=outcome.escalate_reason
+                or (
+                    "Diagnosed, but the remedy is human review: "
+                    f"{outcome.signature_code or 'unspecified'}"
+                ),
             )
         )
         await audit.record(
