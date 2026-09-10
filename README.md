@@ -250,6 +250,7 @@ its absence. Concretely, until it is added:
 | Blocked | State |
 |---|---|
 | The 8 numeric experiment plugins | Registered as `PendingManualPlugin`; raise `ManualNotTranscribedError` on use, so a submission escalates to review instead of getting a fabricated diagnosis |
+| Socratic step decomposition for those 8 | The engine, hint ladder and gate are generic and tested, but the ordered steps come from the manual, so guided mode returns 503 for them. Only exp07/exp08 have steps today |
 | Golden dataset Category 1 | Empty, with a README explaining why and the transcription procedure |
 | Retrieval citations | Retrieval returns nothing; phrased output carries no citation |
 | Experiment titles and numbering | Placeholders; even the 7/8 assignment is unverified |
