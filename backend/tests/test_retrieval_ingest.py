@@ -193,3 +193,62 @@ def test_generic_wet_lab_sentence_does_not_get_attributed_to_a_computational_exp
         1, document=document, entry=entry, image=None,
     )
     assert chunks[0].experiment_id is None
+
+
+# ---------------------------------------------------------------------------
+# Filename-derived attribution hint (curated Tier C topic files)
+# ---------------------------------------------------------------------------
+
+
+def test_filename_hint_overrides_ambiguous_vocabulary():
+    """A generic-sounding paragraph in a file named 'exp07_...' must still
+    attribute to exp07, since it has none of exp07's distinctive terms."""
+    document = SourceDocument(
+        document_id="adjacent", tier=SourceTier.CURATED_ADJACENT, filename="d/",
+        title="Adjacent", version="1.0", experiments=("exp02", "exp03", "exp07", "exp08"),
+    )
+    entry = _entry(document_id="adjacent", tier=SourceTier.CURATED_ADJACENT, present=True,
+                    experiments=("exp02", "exp03", "exp07", "exp08"))
+    chunks = ingest._chunk_page(
+        "Check whether the job actually finished before concluding something is wrong.",
+        1, document=document, entry=entry, image=None, experiment_hint="exp07",
+    )
+    assert chunks[0].experiment_id == "exp07"
+
+
+def test_filename_hint_is_ignored_when_document_does_not_cover_that_experiment():
+    document = SourceDocument(
+        document_id="adjacent", tier=SourceTier.CURATED_ADJACENT, filename="d/",
+        title="Adjacent", version="1.0", experiments=("exp02", "exp03"),
+    )
+    entry = _entry(document_id="adjacent", tier=SourceTier.CURATED_ADJACENT, present=True,
+                    experiments=("exp02", "exp03"))
+    chunks = ingest._chunk_page(
+        "Generic troubleshooting text with no distinctive vocabulary.",
+        1, document=document, entry=entry, image=None, experiment_hint="exp07",
+    )
+    assert chunks[0].experiment_id is None
+
+
+def test_filename_experiment_hint_extraction():
+    import pathlib
+
+    assert ingest._filename_experiment_hint(pathlib.Path("exp07_orca_troubleshooting.md")) == "exp07"
+    assert ingest._filename_experiment_hint(pathlib.Path("exp02-kinetics.md")) == "exp02"
+    assert ingest._filename_experiment_hint(pathlib.Path("general_notes.md")) is None
+
+
+def test_adjacent_knowledge_directory_ingests_with_correct_attribution():
+    """Integration check against the real knowledge/adjacent/ directory
+    committed to this repository."""
+    entry = get_manifest().by_id("adjacent_knowledge_v1")
+    report = ingest.ingest_document(entry)
+    assert report.status == "ingested"
+    assert report.chunk_count > 0
+    unattributed = [c for c in report.chunks if c.experiment_id is None]
+    assert not unattributed, (
+        "every curated adjacent file names its experiment by filename "
+        f"convention; unexpected unattributed chunks: {unattributed}"
+    )
+    assert {c.experiment_id for c in report.chunks} == {"exp02", "exp03", "exp07", "exp08"}
+    assert all(c.tier == SourceTier.CURATED_ADJACENT for c in report.chunks)

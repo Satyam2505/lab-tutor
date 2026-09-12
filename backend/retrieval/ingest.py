@@ -107,23 +107,33 @@ def ingest_document(
             reason=f"manifest says present=true but file not found at {path}",
         )
 
-    pages = _extract_pages(path)
+    pages = _extract_units(path)
     if not pages:
         return IngestReport(
             document_id=document.document_id,
             status="blocked",
-            reason="no extractable text (empty, corrupt, or image-only PDF)",
+            reason="no extractable text (empty, corrupt, or image-only source)",
         )
 
     chunks: list[Chunk] = []
-    for page_number, text in pages:
+    for page_number, text, section, experiment_hint in pages:
         image = None
-        if image_output_dir is not None:
+        # Page images only apply to an actual PDF; a Tier C markdown
+        # corpus has no page to rasterise.
+        if image_output_dir is not None and path.is_file() and path.suffix.lower() == ".pdf":
             image = render_page_image(
                 path, page_number, document_id=document.document_id, output_dir=image_output_dir
             )
         chunks.extend(
-            _chunk_page(text, page_number, document=document, entry=entry, image=image)
+            _chunk_page(
+                text,
+                page_number,
+                document=document,
+                entry=entry,
+                image=image,
+                section=section,
+                experiment_hint=experiment_hint,
+            )
         )
 
     return IngestReport(
@@ -142,7 +152,50 @@ def ingest_all(*, image_output_dir: str | Path | None = None) -> list[IngestRepo
     ]
 
 
-def _extract_pages(path: Path) -> list[tuple[int, str]]:
+#: Recognised plain-text source extensions, for Tier B/C material that
+#: is not a scanned manual (e.g. `knowledge/adjacent/`). Anything else
+#: under a directory is skipped rather than guessed at.
+_TEXT_EXTENSIONS = (".md", ".markdown", ".txt")
+
+
+#: A curated file named e.g. `exp07_orca_troubleshooting.md` names its own
+#: experiment unambiguously by convention. Matched against the filename
+#: stem so a topic file with no distinctive vocabulary of its own (a
+#: generic troubleshooting note, say) still attributes correctly instead
+#: of falling through to the ambiguous vocabulary scan.
+_FILENAME_EXPERIMENT_RE = re.compile(r"^exp(\d{2})[_-]")
+
+
+def _extract_units(path: Path) -> list[tuple[int, str, str, str | None]]:
+    """Extract `(unit_number, text, section, experiment_hint)` from any
+    source kind.
+
+    `unit_number` plays the role a PDF page number plays elsewhere in
+    this module: it is what `Chunk.page` is set from, and for a
+    non-paginated source (a markdown file) it is simply that file's
+    position in a stable, sorted ordering -- stable so re-ingesting an
+    unchanged directory reproduces the same chunk IDs.
+
+    `experiment_hint` is filename-derived and takes priority over the
+    ambiguous per-chunk vocabulary scan in `_attribute_experiment` -- see
+    `_FILENAME_EXPERIMENT_RE`. It is always `None` for a PDF, which has no
+    filename-per-topic convention to read.
+    """
+    if path.is_dir():
+        return _extract_from_directory(path)
+    if path.suffix.lower() == ".pdf":
+        return _extract_from_pdf(path)
+    if path.suffix.lower() in _TEXT_EXTENSIONS:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if not text.strip():
+            return []
+        return [(1, text, _section_title(path), _filename_experiment_hint(path))]
+
+    log.error("Unrecognised source kind for ingestion: %s", path)
+    return []
+
+
+def _extract_from_pdf(path: Path) -> list[tuple[int, str, str, str | None]]:
     try:
         from pypdf import PdfReader
     except ImportError:  # pragma: no cover - dependency is pinned
@@ -151,15 +204,48 @@ def _extract_pages(path: Path) -> list[tuple[int, str]]:
 
     try:
         reader = PdfReader(str(path))
-        pages: list[tuple[int, str]] = []
+        pages: list[tuple[int, str, str, str | None]] = []
         for page_number, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
             if text.strip():
-                pages.append((page_number, text))
+                pages.append((page_number, text, "", None))
         return pages
     except Exception as exc:  # pragma: no cover - corrupt/locked PDF
         log.error("Failed to read %s: %s", path, exc)
         return []
+
+
+#: Meta-documentation about a directory, not answerable content. Ingesting
+#: a directory's own README would surface sentences like "this directory
+#: is Tier C" as if they were an answer to a student's question.
+_IGNORED_FILENAMES = frozenset({"readme.md", "readme.txt"})
+
+
+def _extract_from_directory(directory: Path) -> list[tuple[int, str, str, str | None]]:
+    files = sorted(
+        p
+        for p in directory.iterdir()
+        if p.is_file()
+        and p.suffix.lower() in _TEXT_EXTENSIONS
+        and p.name.lower() not in _IGNORED_FILENAMES
+    )
+    units: list[tuple[int, str, str, str | None]] = []
+    for index, file_path in enumerate(files, start=1):
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+        if text.strip():
+            units.append(
+                (index, text, _section_title(file_path), _filename_experiment_hint(file_path))
+            )
+    return units
+
+
+def _filename_experiment_hint(path: Path) -> str | None:
+    match = _FILENAME_EXPERIMENT_RE.match(path.stem.lower())
+    return f"exp{match.group(1)}" if match else None
+
+
+def _section_title(path: Path) -> str:
+    return path.stem.replace("_", " ").replace("-", " ").strip().title()
 
 
 def _chunk_page(
@@ -169,6 +255,8 @@ def _chunk_page(
     document: SourceDocument,
     entry: ManifestEntry,
     image,
+    section: str = "",
+    experiment_hint: str | None = None,
 ) -> list[Chunk]:
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     packed = _pack(paragraphs, MAX_CHUNK_CHARS)
@@ -177,7 +265,7 @@ def _chunk_page(
     for index, body in enumerate(packed):
         locator = f"p{page}#{index}"
         chunk_id = make_chunk_id(document.document_id, document.version, locator)
-        experiment_id = _attribute_experiment(body, document)
+        experiment_id = _attribute_experiment(body, document, hint=experiment_hint)
         chunks.append(
             Chunk(
                 chunk_id=chunk_id,
@@ -186,6 +274,7 @@ def _chunk_page(
                 document_title=document.title,
                 tier=document.tier,
                 source_version=document.version,
+                section=section,
                 page=page,
                 content_type=_classify_content(body),
                 experiment_id=experiment_id,
@@ -223,17 +312,27 @@ def _classify_content(text: str) -> ContentType:
     return ContentType.GENERAL
 
 
-def _attribute_experiment(text: str, document: SourceDocument) -> str | None:
+def _attribute_experiment(
+    text: str, document: SourceDocument, *, hint: str | None = None
+) -> str | None:
     """Which experiment this chunk belongs to, if that is unambiguous.
 
     A document declared for exactly one experiment in the manifest is
-    attributed to it outright. A document spanning many (the manual
-    itself) is attributed per-chunk, and only when exactly one
-    experiment's strong/software vocabulary is present -- ties or silence
-    are left unattributed rather than guessed.
+    attributed to it outright. A filename-derived `hint` (see
+    `_filename_experiment_hint`) is trusted next, when it names an
+    experiment the document actually covers -- this is what lets a
+    generic-sounding paragraph in `exp07_orca_troubleshooting.md`
+    attribute correctly even though it contains none of experiment 7's
+    distinctive vocabulary. Only once both are unavailable does per-chunk
+    vocabulary scanning run, and only when exactly one experiment's
+    strong/software vocabulary is present -- ties or silence are left
+    unattributed rather than guessed.
     """
     if len(document.experiments) == 1:
         return document.experiments[0]
+
+    if hint and (not document.experiments or hint in document.experiments):
+        return hint
 
     lowered = text.lower()
     hits: set[str] = set()
