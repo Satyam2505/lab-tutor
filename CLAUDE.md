@@ -42,16 +42,28 @@ already attached for them to describe.
 If you find yourself writing a prompt that asks an LLM to "check if
 this is right," "decide what the student did wrong," or "compute the
 expected value," **stop — this is a bug.** Flag it instead of writing
-it. This rule applies even under deadline pressure, even for
-experiments that seem "too simple to bother with real Tier 1 logic,"
-and even for Experiments 7 and 8 (see ARCHITECTURE.md) — those get a
-stub that always escalates to Tier 3, not an LLM judgment call.
+it. This rule applies even under deadline pressure, and even for
+experiments that seem "too simple to bother with real Tier 1 logic."
+
+**Experiments 7 and 8 — amended.** This file originally said those two
+get "a stub that always escalates to Tier 3, not an LLM judgment call."
+The build session deviated: their energy **ordering** is now checked
+deterministically (staggered below eclipsed, chair below boat), a
+consistent ordering still escalates rather than passing, and a model may
+only add a low-confidence note about the student's method narrative. The
+hard rule above is intact — no model decides the ordering — but this is
+the one place a model contributes to a judgment at all. The full
+rationale and the containment measures are recorded in
+[docs/ARCHITECTURE.md §2.1](docs/ARCHITECTURE.md). Do not extend that
+exception to a third experiment; if one seems to need it, it needs a
+deterministic checker instead.
 
 ## Coding conventions
 
-- **Language/framework**: TBD, confirm with team. (Commit 5 of the
-  scaffolding session proposed FastAPI + Postgres + Next.js as a
-  recommendation, not a locked decision — verify before assuming.)
+- **Language/framework**: FastAPI + Postgres + Next.js. Confirmed by the
+  build session; the scaffolding's recommendation is now the decision.
+  See [docs/ARCHITECTURE.md §4](docs/ARCHITECTURE.md). Tests run against
+  SQLite so the suite needs no services.
 - **Commits**: small, one logical change per commit. No AI
   co-author attribution in commit messages, ever.
 

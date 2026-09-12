@@ -1,0 +1,128 @@
+:root {
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --border: #e3e1dc;
+  --text: #23211d;
+  --muted: #6b675f;
+  --accent: #3f6d55;
+  --accent-weak: #eaf1ed;
+  --warn: #8a5a1f;
+  --warn-weak: #fbf2e4;
+  --danger: #96342b;
+  --danger-weak: #fbebe8;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1917;
+    --surface: #232220;
+    --border: #38352f;
+    --text: #eceae5;
+    --muted: #a09b91;
+    --accent: #7fb59a;
+    --accent-weak: #26332c;
+    --warn: #d3a05c;
+    --warn-weak: #33291c;
+    --danger: #d98a80;
+    --danger-weak: #331f1c;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+h2 { font-size: 1.1rem; margin: 28px 0 10px; }
+p  { margin: 0 0 12px; }
+
+.muted { color: var(--muted); font-size: 0.9rem; }
+.mono  { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+header.bar {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.btn {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-secondary { background: transparent; border-color: var(--border); color: var(--text); }
+.btn-danger { background: var(--danger); color: #fff; }
+
+input, textarea, select {
+  font: inherit;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+
+label { display: block; margin-bottom: 10px; }
+label span { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 3px; }
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+}
+.pill-pass      { background: var(--accent-weak); color: var(--accent); border-color: transparent; }
+.pill-fail      { background: var(--danger-weak); color: var(--danger); border-color: transparent; }
+.pill-escalated { background: var(--warn-weak);  color: var(--warn);  border-color: transparent; }
+.pill-invalid   { background: var(--warn-weak);  color: var(--warn);  border-color: transparent; }
+
+.error { background: var(--danger-weak); color: var(--danger); padding: 10px 12px; border-radius: var(--radius); margin-bottom: 12px; }
+.notice { background: var(--warn-weak); color: var(--warn); padding: 10px 12px; border-radius: var(--radius); margin-bottom: 12px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 0.82rem; }
+
+.chat { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.msg { padding: 9px 12px; border-radius: var(--radius); max-width: 82%; }
+.msg-student { align-self: flex-end; background: var(--accent-weak); }
+.msg-tutor { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
+/* A safety reply must not read as one more hint in the stream. */
+.msg-urgent {
+  background: var(--danger-weak);
+  border: 2px solid var(--danger);
+  color: var(--danger);
+  max-width: 100%;
+}
+
+.progress { height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; }
+.progress > div { height: 100%; background: var(--accent); transition: width 0.3s; }

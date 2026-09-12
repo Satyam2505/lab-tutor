@@ -1,3 +1,20 @@
-"""Async job: pre-summary AI sanity check + per-student trajectory-based 2-line summary for the professor dashboard. Qualitative engagement/understanding read only — does NOT re-compare against an answer key or produce a grading signal."""
+"""Professor-triggered, async, idempotent per-student trajectory summaries.
 
-# TODO: implement
+Qualitative engagement reads, not grades. Visible only to the professor,
+never generated mid-session. See `jobs.py` for the batching rules.
+"""
+
+from backend.summaries.jobs import run_job, start_job
+from backend.summaries.trajectory import (
+    Trajectory,
+    build_trajectory,
+    deterministic_summary,
+)
+
+__all__ = [
+    "Trajectory",
+    "build_trajectory",
+    "deterministic_summary",
+    "run_job",
+    "start_job",
+]

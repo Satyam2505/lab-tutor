@@ -1,8 +1,97 @@
-# TODO: implement.
+# LabTutor stack.
 #
-# Placeholder for local dev orchestration (backend, frontend,
-# Postgres, and — dev-only — a local Ollama fallback endpoint).
-# No real service definitions yet; stack is being confirmed in
-# docs/ARCHITECTURE.md. Do not add real credentials to this file —
-# use environment variable references only, sourced from a local
-# .env that is never committed (see .env.example at repo root).
+# One file of credentials is the whole deployment procedure:
+#
+#     cp .env.example .env        # then fill in real values
+#     docker compose -f infra/docker-compose.yml up -d --build
+#
+# Caddy terminates HTTPS and obtains a certificate automatically from
+# Let's Encrypt for LABTUTOR_DOMAIN. Nothing but the proxy is published on
+# the host; the backend, frontend and database talk over the internal
+# network only.
+
+name: labtutor
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/backend.Dockerfile
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    volumes:
+      # The manual is the source of truth for every formula and tolerance.
+      # Read-only: nothing in the app should ever write to it.
+      - ../manual:/app/manual:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infra/frontend.Dockerfile
+    restart: unless-stopped
+    environment:
+      # Server-side calls go over the internal network; the browser uses
+      # same-origin /api paths, which Caddy routes to the backend.
+      BACKEND_INTERNAL_URL: http://backend:8000
+    depends_on: [backend]
+    networks: [internal]
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      LABTUTOR_DOMAIN: ${LABTUTOR_DOMAIN:-localhost}
+      LABTUTOR_TLS_EMAIL: ${LABTUTOR_TLS_EMAIL:-internal}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [backend, frontend]
+    networks: [internal]
+
+  # Local inference for development and for the documented degraded mode.
+  # Not started by default: `docker compose --profile ollama up -d`.
+  # See README "Inference backends" for why this is not the pilot target.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [ollama]
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    networks: [internal]
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+  ollama-models:
+
+networks:
+  internal:
+    driver: bridge

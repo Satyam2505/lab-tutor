@@ -1,0 +1,98 @@
+name: CI
+
+# The test suite is a deployment gate, not documentation. Nothing ships
+# from a red build.
+
+on:
+  push:
+    branches: [master, main, "feat/**"]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Verify the answer-gate invariant
+        # Runs before the suite so a weakened gate fails loudly and first,
+        # rather than being buried in a list of assertion errors.
+        run: python -c "from backend.answer_gate import assert_gate_invariant; assert_gate_invariant(); print('answer gate invariant holds')"
+
+      - name: Regenerate the Category 2 golden dataset
+        # Fails if any synthetic case stops triggering the signature rule it
+        # was built for -- catching drift between the data and the detectors.
+        run: python golden_dataset/generate.py
+
+      - name: Confirm the golden dataset is unchanged
+        # If regeneration altered the committed file, the detectors moved and
+        # the change needs reviewing, not silently accepting.
+        run: git diff --exit-code golden_dataset/
+
+      - name: Run the test suite
+        run: python -m pytest
+
+      - name: Load-test harness smoke check
+        # Dry run only: CI has no inference credentials, and a real load test
+        # against a paid provider does not belong on every push. This just
+        # proves the script still runs before someone reaches for it.
+        run: python infra/loadtest.py --dry-run --students 20 --turns 2
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Type-check and build
+        working-directory: frontend
+        run: npm run build
+
+  compose:
+    name: Compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the stack definition
+        # Uses .env.example so the file that documents deployment is the
+        # file that gets validated.
+        run: |
+          cp .env.example .env
+          docker compose -f infra/docker-compose.yml config --quiet
+          echo "compose configuration is valid"
+
+      - name: Confirm no secrets are committed
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "::error::.env is committed to the repository"
+            exit 1
+          fi
+          echo ".env is not tracked"

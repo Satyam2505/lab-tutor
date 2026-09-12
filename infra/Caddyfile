@@ -1,0 +1,38 @@
+# HTTPS termination and routing.
+#
+# Caddy obtains and renews a Let's Encrypt certificate for
+# LABTUTOR_DOMAIN automatically. Set LABTUTOR_DOMAIN=localhost for local
+# work and it serves an internally-trusted certificate instead, so the
+# dev and production paths differ only by that one variable.
+
+{
+	email {$LABTUTOR_TLS_EMAIL}
+}
+
+{$LABTUTOR_DOMAIN} {
+	encode gzip
+
+	# Security headers. HSTS is deliberately omitted for localhost, where
+	# Caddy serves its own CA; add it once a real domain is in use.
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# The API, including the OAuth callback.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Health checks stay on the backend.
+	handle /health* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else is the Next.js app.
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

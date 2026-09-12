@@ -1,0 +1,277 @@
+{
+  "category": 2,
+  "title": "Known-deviation cases per Tier 1 signature",
+  "note": "Synthetic data, not manual-sourced. Numbers here are arbitrary and exist only to trigger a specific detection rule; they are NOT BACHY105 values and must not be copied into an experiment plugin.",
+  "reference_checkers": {
+    "direct_formula": "DirectFormulaChecker",
+    "calibration_curve": "CalibrationCurveChecker",
+    "endpoint_peak": "EndpointDetectionChecker",
+    "endpoint_intersection": "EndpointDetectionChecker",
+    "regression_slope": "RegressionSlopeChecker"
+  },
+  "cases": [
+    {
+      "id": "c2-sign-flip",
+      "signature": "sign_flip",
+      "checker": "regression_slope",
+      "description": "Rate constant reported with the wrong sign -- the slope-to-constant conversion was not negated.",
+      "inputs": {
+        "t": [
+          0,
+          10,
+          20,
+          30,
+          40,
+          50
+        ],
+        "conc": [
+          1.0,
+          0.606531,
+          0.367879,
+          0.22313,
+          0.135335,
+          0.082085
+        ]
+      },
+      "reported": -0.05,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-unit-scale",
+      "signature": "unit_scale_error",
+      "checker": "direct_formula",
+      "description": "Right arithmetic, wrong scale: reported ten times too large.",
+      "inputs": {
+        "n1": 0.1,
+        "v1": 25.0,
+        "v2": 20.0
+      },
+      "reported": 1.25,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-transposed-inputs",
+      "signature": "transposed_inputs",
+      "checker": "direct_formula",
+      "description": "The two volumes were recorded against the wrong labels; recomputing with them swapped reproduces the reported value.",
+      "inputs": {
+        "n1": 0.1,
+        "v1": 25.0,
+        "v2": 20.0
+      },
+      "reported": 0.08,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-rounding-drift",
+      "signature": "rounding_drift",
+      "checker": "direct_formula",
+      "description": "Just outside tolerance, consistent with early rounding.",
+      "inputs": {
+        "n1": 0.1,
+        "v1": 25.0,
+        "v2": 20.0
+      },
+      "reported": 0.13,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-poor-linear-fit",
+      "signature": "poor_linear_fit",
+      "checker": "calibration_curve",
+      "description": "Calibration standards scatter badly; R^2 below the floor.",
+      "inputs": {
+        "conc": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "absorbance": [
+          0.1,
+          0.5,
+          0.15,
+          0.9,
+          0.2
+        ],
+        "unknown_abs": 0.25
+      },
+      "reported": 2.5,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-extrapolation",
+      "signature": "extrapolated_beyond_standards",
+      "checker": "calibration_curve",
+      "description": "The unknown reads outside the range the standards cover.",
+      "inputs": {
+        "conc": [
+          1,
+          2,
+          3
+        ],
+        "absorbance": [
+          0.1,
+          0.2,
+          0.3
+        ],
+        "unknown_abs": 0.9
+      },
+      "reported": 9.0,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-non-monotonic",
+      "signature": "non_monotonic_data",
+      "checker": "calibration_curve",
+      "description": "Two adjacent standards were transcribed into each other's rows. A long series is used deliberately: in a short calibration a single transposition also drags R^2 under the floor, so the fit-quality rule fires first and this rule is unreachable. That ordering is correct -- an unusable calibration is the more important finding -- but it means isolating the monotonicity rule needs enough points that one swap leaves the fit intact.",
+      "inputs": {
+        "conc": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ],
+        "absorbance": [
+          0.05,
+          0.1,
+          0.15,
+          0.2,
+          0.25,
+          0.3,
+          0.35,
+          0.45,
+          0.4,
+          0.5,
+          0.55,
+          0.6,
+          0.65,
+          0.7,
+          0.75,
+          0.8
+        ],
+        "unknown_abs": 0.25
+      },
+      "reported": 5.0,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-unresolved-peak",
+      "signature": "unresolved_peak",
+      "checker": "endpoint_peak",
+      "description": "A broad, shallow EMF peak: a maximum exists but stands too little above baseline to locate an endpoint.",
+      "inputs": {
+        "volume": [
+          8.0,
+          8.5,
+          9.0,
+          9.5,
+          10.0
+        ],
+        "dEdV": [
+          2.0,
+          2.5,
+          3.0,
+          2.6,
+          2.1
+        ]
+      },
+      "reported": 9.0,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-coarse-increments",
+      "signature": "coarse_increments",
+      "checker": "endpoint_peak",
+      "description": "The EMF titration was run in 5 mL steps, far too coarse to resolve the endpoint even though a sharp peak is present.",
+      "inputs": {
+        "volume": [
+          0.0,
+          5.0,
+          10.0,
+          15.0,
+          20.0
+        ],
+        "dEdV": [
+          2.0,
+          5.0,
+          40.0,
+          6.0,
+          2.0
+        ]
+      },
+      "reported": 10.0,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-flat-response",
+      "signature": "flat_response",
+      "checker": "endpoint_intersection",
+      "description": "Conductance barely moves; no endpoint exists in this data.",
+      "inputs": {
+        "volume": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "conductance": [
+          5.0,
+          5.1,
+          5.0,
+          5.05,
+          5.0,
+          5.1
+        ]
+      },
+      "reported": 3.0,
+      "verified": true,
+      "verification_note": "ok"
+    },
+    {
+      "id": "c2-insufficient-points",
+      "signature": "insufficient_points",
+      "checker": "regression_slope",
+      "description": "Too few readings to fit a defensible slope.",
+      "inputs": {
+        "t": [
+          0,
+          10,
+          20
+        ],
+        "conc": [
+          1.0,
+          0.606,
+          0.367
+        ]
+      },
+      "reported": 0.05,
+      "verified": true,
+      "verification_note": "invalid (too few points), as intended"
+    }
+  ]
+}
