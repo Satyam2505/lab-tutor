@@ -135,9 +135,6 @@ def classify_scope(
     tokens = set(query.tokens)
 
     scores, matched, decisive = _route(query, tokens, text)
-    experiment_id, confidence, ambiguous = _pick(
-        scores, decisive, query, active_experiment
-    )
 
     in_domain = _in_domain_evidence(tokens, text)
     out_domain = _out_of_domain_evidence(tokens, text)
@@ -148,11 +145,21 @@ def classify_scope(
     # *name*, an experiment number -- still blocks it.
     substantive_in_domain = in_domain - ontology._WEAK_GENERIC_DOMAIN_TERMS
 
+    # Both out-of-scope checks below are decided from the MESSAGE alone --
+    # `decisive`, `substantive_in_domain` and `query.explicit_experiments`,
+    # never from `active_experiment`. A session left open on experiment 7
+    # must not immunise "what is the best gpu for gaming" from refusal
+    # just because the last message happened to be about experiment 7;
+    # the demo script (scripts/demo_exp7.py) is what surfaced this as a
+    # real bug rather than a hypothetical one -- session carryover was
+    # letting exactly this kind of message slip through uncaught.
+    has_message_evidence = bool(decisive) or bool(query.explicit_experiments)
+
     # Level 3 requires positive out-of-domain evidence AND the absence of
     # substantive in-domain evidence. Both halves matter: "why is chair
     # more stable" contains no out-of-domain terms, and "is a gaming gpu
     # faster at running orca" contains both and must not be refused.
-    if out_domain and not substantive_in_domain and experiment_id is None:
+    if out_domain and not substantive_in_domain and not has_message_evidence:
         return ScopeDecision(
             level=ScopeLevel.OUT_OF_SCOPE,
             query=query,
@@ -166,7 +173,7 @@ def classify_scope(
             triage_intent=intent,
         )
 
-    if intent is triage.Intent.OFF_SCOPE and not experiment_id and not substantive_in_domain:
+    if intent is triage.Intent.OFF_SCOPE and not has_message_evidence and not substantive_in_domain:
         return ScopeDecision(
             level=ScopeLevel.OUT_OF_SCOPE,
             query=query,
@@ -175,6 +182,10 @@ def classify_scope(
             rationale="triage off-scope pattern with no in-domain evidence",
             triage_intent=intent,
         )
+
+    experiment_id, confidence, ambiguous = _pick(
+        scores, decisive, query, active_experiment
+    )
 
     # Anaphora ("what comes after this screen") inherits the session's
     # experiment: the referent is the conversation, not the message.

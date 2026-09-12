@@ -231,6 +231,29 @@ def test_safety_short_circuit_is_preserved_and_not_reclassified():
     assert decision.level is not ScopeLevel.OUT_OF_SCOPE
 
 
+@pytest.mark.parametrize("active", [None, "exp07", "exp02", "exp08"])
+def test_an_active_session_experiment_never_immunises_a_genuine_refusal(active):
+    """Regression: a session left open on an experiment must not shield an
+    unrelated later message from being refused. Found by running
+    scripts/demo_exp7.py, where turn 15 ('what is the best gpu for
+    gaming') was wrongly answered as an experiment-7 retrieval gap
+    because the session's active_experiment from the prior turn was
+    treated as evidence the message itself never provided."""
+    decision = classify_scope("what is the best gpu for gaming", active_experiment=active)
+    assert decision.level is ScopeLevel.OUT_OF_SCOPE
+    assert decision.experiment_id is None
+
+
+def test_out_of_scope_decision_never_depends_on_session_state():
+    """classify_scope(message) and classify_scope(message, active_experiment=X)
+    must agree on scope level for a message with no evidence of its own,
+    whatever X is -- the level is a property of the message."""
+    for message in ("what is the best gpu for gaming", "who won the cricket match"):
+        baseline = classify_scope(message).level
+        for active in ("exp02", "exp03", "exp07", "exp08"):
+            assert classify_scope(message, active_experiment=active).level == baseline
+
+
 # ---------------------------------------------------------------------------
 # Status semantics
 # ---------------------------------------------------------------------------

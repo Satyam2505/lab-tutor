@@ -194,3 +194,24 @@ async def test_non_answering_statuses_never_carry_citations(fixture_index):
         result = await answer_question(message, active_experiment="exp07", index=fixture_index, use_llm=False)
         if not result.status.answerable:
             assert result.citations == ()
+
+
+async def test_off_topic_message_is_refused_mid_session_not_answered_as_a_gap(fixture_index):
+    """Regression from scripts/demo_exp7.py: a multi-turn session that has
+    been asking about experiment 7 must still refuse a message with no
+    connection to it, rather than reporting it as an experiment-7
+    retrieval gap because the session carried an active experiment."""
+    on_topic = await answer_question(
+        "where do i find the homo lumo orbital energy", index=fixture_index, use_llm=False
+    )
+    assert on_topic.decision.experiment_id == "exp07"
+
+    off_topic = await answer_question(
+        "what is the best gpu for gaming",
+        active_experiment=on_topic.decision.experiment_id,
+        index=fixture_index,
+        use_llm=False,
+    )
+    assert off_topic.status is AnswerStatus.OUT_OF_SCOPE
+    assert off_topic.decision.experiment_id is None
+    assert not off_topic.citations
