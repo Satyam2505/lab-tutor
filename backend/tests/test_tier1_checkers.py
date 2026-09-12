@@ -1,6 +1,6 @@
 """Unit tests for the four shared checker types.
 
-These use arbitrary reference configurations, NOT BACHY105 values --
+These use arbitrary reference configurations, NOT IACHY102 values --
 manual-sourced ground truth is Category 1's job, and this file must not
 pretend to it. What is tested here is that each checker type behaves the
 way its contract says: recomputes, compares within tolerance, and lets

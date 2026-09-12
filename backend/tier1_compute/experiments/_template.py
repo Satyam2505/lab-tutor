@@ -1,7 +1,7 @@
 """Worked reference for writing a per-experiment Tier 1 plugin.
 
 Deliberately NOT registered: the numbers below are illustrative and are
-not from the BACHY105 manual. Copy this file to `expNN.py`, replace every
+not from the IACHY102 manual. Copy this file to `expNN.py`, replace every
 value with the manual's own, and call `register(...)` there.
 
 The point of the plugin system is that a new experiment is *configuration*

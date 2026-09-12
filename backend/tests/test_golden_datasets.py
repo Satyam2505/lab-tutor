@@ -38,7 +38,7 @@ def test_category1_is_either_populated_or_explicitly_blocked():
             "other must be true."
         )
         pytest.skip(
-            "Category 1 is empty: the BACHY105 manual is not in the repository, "
+            "Category 1 is empty: the IACHY102 manual is not in the repository, "
             "so there are no worked examples to transcribe. See "
             "golden_dataset/category1_worked_examples/README.md"
         )

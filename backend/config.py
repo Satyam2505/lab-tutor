@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     llm_auto_fallback: bool = Field(True, alias="LABTUTOR_LLM_AUTO_FALLBACK")
 
     # --- retrieval ---
-    manual_pdf: str = Field("manual/BACHY105.pdf", alias="LABTUTOR_MANUAL_PDF")
+    manual_pdf: str = Field("manual/IACHY102.pdf", alias="LABTUTOR_MANUAL_PDF")
 
     # --- rate limits ---
     ratelimit_socratic_per_minute: int = Field(12, alias="LABTUTOR_RATELIMIT_SOCRATIC_PER_MINUTE")

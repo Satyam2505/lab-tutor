@@ -1,6 +1,13 @@
 """Experiment 08 -- computational method choice (cyclohexane conformers).
 
-STATUS: mechanism implemented; experiment identity pending manual check.
+STATUS: mechanism implemented and, per the Phase 1 IACHY102 audit, this
+one has the RIGHT experiment id -- conformational analysis is confirmed
+as experiment 8 (see `backend/scope/ontology.py` and
+`docs/current_state_audit.md` §3.1). What is still pending is scope, not
+numbering: the brief describes experiment 8 as covering *both* ethane
+(staggered/eclipsed) *and* cyclohexane (chair/boat) conformers as one
+experiment, while ethane's ordering check currently lives, mislabelled,
+in `exp07.py`. See `docs/handoff_phase2.md` item 1 for the merge.
 
 The second and last of the method-choice experiments. See `exp07.py` for
 the full rationale; the same rules apply here. Chair cyclohexane must
@@ -9,10 +16,9 @@ determinate finding; consistency escalates to Tier 3 rather than being
 reported as a pass, because the method choice itself is what the
 experiment is actually assessing.
 
-TODO (manual): confirm that experiment 8 in the BACHY105 manual is the
-cyclohexane conformational analysis, and that the labels below match what
-students are asked to report. The chair/boat ordering is standard
-chemistry; the experiment numbering is not verified.
+TODO (manual): confirm the exact labels students are asked to report,
+and merge in ethane's ordering pairs from `exp07.py` once that module's
+tests are moved over.
 """
 
 from __future__ import annotations
@@ -71,7 +77,7 @@ register(
     QualitativeOrderingPlugin(
         id=EXPERIMENT_ID,
         title="Conformational analysis of cyclohexane (computational)",
-        manual_reference="TODO: confirm section/page against the BACHY105 manual",
+        manual_reference="TODO: confirm section/page against the IACHY102 manual",
         orderings=ORDERINGS,
         step_specs=STEPS,
     )

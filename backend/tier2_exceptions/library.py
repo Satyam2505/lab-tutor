@@ -16,7 +16,7 @@ Scope for this build, deliberately:
 
 The entries below are *generic wet-lab* mistakes that hold across
 titrimetric and colorimetric experiments. Per-experiment entries need the
-BACHY105 manual and a demonstrator's judgment about what this cohort
+IACHY102 manual and a demonstrator's judgment about what this cohort
 actually gets wrong -- see `EXPERIMENT_SEEDS` and README "Known
 limitations".
 """
