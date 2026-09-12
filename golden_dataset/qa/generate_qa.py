@@ -158,7 +158,12 @@ _EXPLICIT_UNKNOWN_TEMPLATES = [
 
 
 def _terms_for(topic) -> list[str]:
-    picked = list(topic.strong_terms)[:10] + list(topic.weak_terms)[:6]
+    # Every strong term gets used somewhere (sorted for determinism) --
+    # truncating this list is what left "methane", "ch4" and others with
+    # zero question coverage on an earlier run; see
+    # golden_dataset/qa/coverage_report.py. Weak terms are capped since
+    # they exist only to break ties, not to be the question's subject.
+    picked = sorted(topic.strong_terms) + sorted(topic.weak_terms)[:6]
     return picked or ["procedure"]
 
 
