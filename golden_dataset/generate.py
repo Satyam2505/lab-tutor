@@ -37,7 +37,7 @@ from backend.tier1_compute.shared import (  # noqa: E402
 #
 # These stand in for real experiment plugins so the signature rules can be
 # exercised before the manual is transcribed. The numbers are ARBITRARY --
-# they are not from BACHY105 and must never be copied into a plugin.
+# they are not from IACHY102 and must never be copied into a plugin.
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +297,7 @@ def main() -> int:
         "note": (
             "Synthetic data, not manual-sourced. Numbers here are arbitrary "
             "and exist only to trigger a specific detection rule; they are "
-            "NOT BACHY105 values and must not be copied into an experiment "
+            "NOT IACHY102 values and must not be copied into an experiment "
             "plugin."
         ),
         "reference_checkers": {

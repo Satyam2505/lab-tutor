@@ -2,7 +2,7 @@
 
 STATUS: pending manual transcription.
 
-The BACHY105 manual PDF is not present in the repository, so this
+The IACHY102 manual PDF is not present in the repository, so this
 experiment's formula, tolerance, expected data shape and Socratic steps
 are unknown. Registering a `PendingManualPlugin` makes any attempt to use
 it raise `ManualNotTranscribedError` instead of quietly producing a
@@ -44,7 +44,7 @@ register(
         title="Experiment 5 (title pending manual transcription)",
         manual_reference="",
         reason=(
-            "BACHY105 manual not present in the repository; formula, "
+            "IACHY102 manual not present in the repository; formula, "
             "tolerance and Socratic steps have not been transcribed"
         ),
     )

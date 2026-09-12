@@ -1,6 +1,42 @@
-"""Experiment 07 -- computational method choice (ethane conformers).
+"""Experiment 07 -- registered here as ethane conformers. THIS IS WRONG.
 
-STATUS: mechanism implemented; experiment identity pending manual check.
+STATUS: identity conflict CONFIRMED, not merely pending, as of the
+Phase 1 IACHY102 audit (see `docs/current_state_audit.md` §3.1 and
+`docs/handoff_phase2.md` item 1 for the exact fix). This module was
+written before the current manual's topic list was available, on the
+(reasonable at the time) guess that experiment 7 was a conformer
+comparison. It is not.
+
+Per the Phase 1 brief's own experiment descriptions -- confirmed
+independently in `backend/scope/ontology.py`, which is sourced from the
+same brief -- **experiment 7 is the molecular-orbital workflow**
+(Gabedit / ORCA / Avogadro, methane and O2, geometry optimisation,
+HOMO/LUMO, orbital contributions). **Experiment 8 covers both ethane
+*and* cyclohexane conformers** as one experiment.
+
+This file has NOT been renumbered in place. The ordering-check mechanism
+below (staggered-vs-eclipsed) is real, tested, working Tier 1 logic --
+it is simply attached to the wrong experiment id, and moving it touches
+four test files with real DB fixtures (`test_pipeline_and_tiers.py`,
+`test_phrasing_injection.py`, `test_data_isolation.py`,
+`test_single_fire_and_summaries.py`). Rather than rewrite those under
+time pressure without the manual in hand to double check the exact
+labels students report, the swap is left as a scoped, mechanical Phase 2
+task. Until then:
+
+* `backend/scope/*` (the retrieval/Q&A router) uses the CORRECT
+  identity: it will route a real experiment-7 question (HOMO/LUMO,
+  orbital contribution) to `exp07` for retrieval purposes.
+* `backend/tier1_compute/experiments/exp07.py` (this file, the
+  diagnosis/grading pipeline) still runs the ethane-conformer check
+  under the `exp07` id.
+* These two subsystems therefore currently disagree about what `exp07`
+  means. Do not assume they are consistent; check which one you are
+  reading.
+
+The chemistry-checking mechanism itself was originally documented as
+follows and remains accurate for *whichever* experiment ends up wired
+to it:
 
 This is one of the two experiments that verify a *computational method
 choice* (ORCA / orbital calculations) rather than a measured quantity.
@@ -19,12 +55,6 @@ An LLM may additionally read the student's method narrative, but only to
 produce a low-confidence, escalation-biased note (see
 `backend/rag/qualitative.py`). This and `exp08` are the only places in
 the system where a model contributes to a judgment at all.
-
-TODO (manual): confirm that experiment 7 in the BACHY105 manual is in
-fact the ethane conformer calculation, and that the manual asks for the
-comparison encoded below. The conformer ordering itself is standard
-chemistry, but the experiment *numbering* and the exact labels students
-are told to report must be verified against the manual before the pilot.
 """
 
 from __future__ import annotations
@@ -80,7 +110,7 @@ register(
     QualitativeOrderingPlugin(
         id=EXPERIMENT_ID,
         title="Conformational energies of ethane (computational)",
-        manual_reference="TODO: confirm section/page against the BACHY105 manual",
+        manual_reference="TODO: confirm section/page against the IACHY102 manual",
         orderings=ORDERINGS,
         step_specs=STEPS,
     )

@@ -1,6 +1,6 @@
 """A reference experiment plugin for tests.
 
-The real experiment plugins cannot be exercised until the BACHY105 manual
+The real experiment plugins cannot be exercised until the IACHY102 manual
 is transcribed, but the machinery around them can. This plugin wires the
 shared checker types exactly the way a real one will, so the Socratic
 engine, the answer gate and the pipeline are all tested against a

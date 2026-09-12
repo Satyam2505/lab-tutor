@@ -2,7 +2,7 @@
 
 One formula from the manual applied to the student's inputs, compared to
 their reported value within the manual's stated tolerance. The most
-common shape in BACHY105 -- titre-volume/normality calculations,
+common shape in IACHY102 -- titre-volume/normality calculations,
 molecular-weight determinations, and similar single-expression results.
 """
 

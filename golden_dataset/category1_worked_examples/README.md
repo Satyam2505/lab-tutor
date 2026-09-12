@@ -3,7 +3,7 @@
 **This category is empty, and that is a deliberate state, not an oversight.**
 
 Category 1 is defined by `docs/golden_dataset_plan.md` as values pulled
-*directly and verbatim* from the BACHY105 manual's own solved sample
+*directly and verbatim* from the IACHY102 manual's own solved sample
 calculations. The manual PDF is not present in this repository, so there
 are no worked examples to transcribe.
 
@@ -22,7 +22,7 @@ For each experiment that the manual gives a solved example for, add
 ```json
 {
   "experiment_id": "exp01",
-  "manual_reference": "BACHY105 manual, section 1.4, p. 12",
+  "manual_reference": "IACHY102 manual, section 1.4, p. 12",
   "inputs": { "standard_normality": 0.1, "standard_volume": 25.0 },
   "expected_output": 0.125,
   "expected_output_field": "normality_of_unknown",

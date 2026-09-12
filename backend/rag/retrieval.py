@@ -43,7 +43,7 @@ class Passage:
     score: float = 0.0
 
     def citation(self) -> str:
-        return f"BACHY105 manual, p. {self.page}"
+        return f"IACHY102 manual, p. {self.page}"
 
 
 def _tokenise(text: str) -> list[str]:
