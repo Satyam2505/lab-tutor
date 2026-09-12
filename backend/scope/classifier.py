@@ -141,12 +141,18 @@ def classify_scope(
 
     in_domain = _in_domain_evidence(tokens, text)
     out_domain = _out_of_domain_evidence(tokens, text)
+    # A hit on only the generic, high-frequency subset ("lab", "software",
+    # "file"...) must not by itself block a refusal: those words appear in
+    # ordinary off-topic phrases too ("software engineering interview",
+    # "lab report"). Real domain evidence -- a chemistry term, a software
+    # *name*, an experiment number -- still blocks it.
+    substantive_in_domain = in_domain - ontology._WEAK_GENERIC_DOMAIN_TERMS
 
     # Level 3 requires positive out-of-domain evidence AND the absence of
-    # in-domain evidence. Both halves matter: "why is chair more stable"
-    # contains no out-of-domain terms, and "is a gaming gpu faster at
-    # running orca" contains both and must not be refused.
-    if out_domain and not in_domain and experiment_id is None:
+    # substantive in-domain evidence. Both halves matter: "why is chair
+    # more stable" contains no out-of-domain terms, and "is a gaming gpu
+    # faster at running orca" contains both and must not be refused.
+    if out_domain and not substantive_in_domain and experiment_id is None:
         return ScopeDecision(
             level=ScopeLevel.OUT_OF_SCOPE,
             query=query,
@@ -160,7 +166,7 @@ def classify_scope(
             triage_intent=intent,
         )
 
-    if intent is triage.Intent.OFF_SCOPE and not experiment_id and not in_domain:
+    if intent is triage.Intent.OFF_SCOPE and not experiment_id and not substantive_in_domain:
         return ScopeDecision(
             level=ScopeLevel.OUT_OF_SCOPE,
             query=query,

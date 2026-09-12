@@ -258,6 +258,24 @@ GENERAL_DOMAIN_TERMS: frozenset[str] = frozenset(
     }
 )
 
+#: The subset of GENERAL_DOMAIN_TERMS too generic, alone, to overrule
+#: positive out-of-domain evidence. "software" and "lab" appear in
+#: ordinary off-topic phrases too ("software engineering interview", "lab
+#: report" -- the latter already an OFF_SCOPE trigger phrase in
+#: `socratic_engine/triage.py`), so a lone hit here must not by itself
+#: block a refusal the way a real chemistry term ("burette", "titration",
+#: "molecule") should. Found by the golden QA generator's own
+#: verification against the live classifier
+#: (`golden_dataset/qa/generate_qa.py`) refusing to write two cases whose
+#: expected OUT_OF_SCOPE outcome the classifier did not actually produce.
+_WEAK_GENERIC_DOMAIN_TERMS: frozenset[str] = frozenset(
+    {
+        "experiment", "laboratory", "lab", "practical", "manual",
+        "procedure", "record", "software", "input", "output", "file",
+        "step", "steps", "result", "reading",
+    }
+)
+
 #: Software names, wherever they appear. Strong in-domain evidence.
 SOFTWARE_TERMS: frozenset[str] = frozenset(
     {"gabedit", "orca", "avogadro", "chemcraft", "molden"}
