@@ -5,15 +5,25 @@ data flow, and stack. Any implementation decision that contradicts
 this document should either update this document (with a note on why)
 or be treated as a bug.
 
-> **Manual status (updated during the build session).** The BACHY105 PDF
-> is still not in the repository. Rather than guess, the build treats
-> this as a hard blocker for numeric content only: all eight numeric
-> experiments are registered as `PendingManualPlugin` and raise on use,
-> so a submission escalates to human review instead of receiving an
-> invented diagnosis. Everything structural around them is built and
-> tested. The experiment names and numbering below — including which
-> two experiments are the computational ones — remain unverified.
-> See README → "What the manual unblocks".
+> **Manual status (updated 2026-09-12).** The course's manual arrived —
+> as **IACHY102** (VIT M.Tech Engineering Chemistry Lab), not the
+> `BACHY105.pdf` this document and CLAUDE.md were written against. The
+> two course codes may denote different programs entirely (M.Tech vs the
+> B.Tech this repo's docs assumed); nothing in the manual PDF itself
+> says which VIT course offering this LabTutor deployment is actually
+> for, so that identification was taken on the user's word, not
+> re-derived. Its text is transcribed in `manual/IACHY102_manual.md` (no
+> PDF binary was deposited in the repo — see `manual/README.md`). The 10
+> assessed experiments and their real content are documented there; the
+> guesses this document and the per-experiment plugins made before the
+> manual arrived were wrong in one confirmed place (Experiment 7 vs 8 —
+> see §2.1.1) and unverified everywhere else. `docs/final_audit.md` has
+> the full experiment-by-experiment status. Only Experiment 1 has a
+> Tier 1 plugin backed by a manual-verified worked example so far;
+> Experiments 2–6, 9, 10 still raise `PendingManualPlugin` reasons that
+> now cite formula gaps rather than "manual absent" (see
+> `manual/IACHY102_manual.md`'s per-experiment sections for what those
+> gaps are, before writing any of them).
 
 ## 1. Pipeline overview
 
@@ -177,10 +187,38 @@ reaches a human.
 
 Why keep it contained: this is the only place a model contributes to a
 judgment. `qualitative_note` raises for any experiment id outside
-`{exp07, exp08}`, and a test asserts exactly two plugins are of this
-kind. If a third experiment appears to need this, that is a signal the
-experiment needs a deterministic checker — not that the exception should
-grow.
+`{exp08}`, and a test asserts exactly one plugin is of this kind. If
+another experiment appears to need this, that is a signal the experiment
+needs a deterministic checker — not that the exception should grow.
+
+### 2.1.1 Correction (2026-09-12): it is one experiment, not two
+
+The IACHY102 manual (course code corrected from BACHY105 — see the
+"Manual status" note above) arrived and showed the guess in §2.1 was
+half wrong about *which* experiment is which, though right about the
+mechanism and about there being exactly two conformer-ordering pairs to
+check:
+
+- **Experiment 8** ("Conformational analysis of cyclohexane and ethane
+  molecules and plotting the potential energy profile", manual p.43–47)
+  is the *only* ordering-check experiment, and covers **both** molecule
+  pairs (ethane staggered/eclipsed **and** cyclohexane chair/boat/
+  twist-boat/half-chair). `exp08.py` now registers both sets of
+  orderings under one plugin.
+- **Experiment 7** ("Build atoms and molecules... calculating the
+  orbital contributions", manual p.39–42) is a **different** experiment:
+  a Gabedit → ORCA → Avogadro workflow producing one HOMO/LUMO orbital
+  energy per run (CH4 and O2, six method/basis-set combinations each).
+  It has no ordering to check — a single run has one HOMO and one LUMO,
+  not two conformers to compare — so `QualitativeOrderingPlugin` does not
+  fit it. It is registered as `PendingManualPlugin` until a fifth shared
+  checker type (job-completion / HOMO<LUMO / energy-decreased-after-
+  optimization "computation sanity" checker) is designed and built.
+  `backend/rag/qualitative.py`'s exception is narrowed to `{exp08}`
+  accordingly.
+
+See `manual/IACHY102_manual.md` and `docs/final_audit.md` for the full
+per-experiment mapping against the real manual.
 
 ## 3. Data flow diagram
 
