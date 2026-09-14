@@ -1,0 +1,18 @@
+{
+  "experiment_id": "exp01",
+  "manual_reference": "IACHY102 manual, p.13, worked example under 'Calculation of Delta-G1 (at T1=30C) and Delta-G1a (at T1a=50C)'",
+  "transcribed_by": "claude-session-2026-09-12",
+  "notes": "Two worked points from the same manual example, both driven through the same final checker (Delta-G = -nF*Ecell). The manual's own Ecell-Nernst worked example (0.05M/0.01M, 303K -> 1.079V, p.13) is covered separately by backend/tests/test_exp01_emf.py, since the golden-dataset harness only exercises the plugin's final checker, not step checkers.",
+  "examples": [
+    {
+      "inputs": { "ecell": 0.99 },
+      "expected_output": -191,
+      "notes": "n=2, F=96500, E=0.99V -> manual states -191 kJ/mol at T1=30C (printed to 3 sig figs; exact recompute is -191.07)"
+    },
+    {
+      "inputs": { "ecell": 1.020 },
+      "expected_output": -197,
+      "notes": "n=2, F=96500, E=1.020V -> manual states -197 kJ/mol at T1a=50C (printed to 3 sig figs; exact recompute is -196.86)"
+    }
+  ]
+}

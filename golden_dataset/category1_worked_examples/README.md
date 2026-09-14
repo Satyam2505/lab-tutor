@@ -1,11 +1,18 @@
 # Category 1 — Known-correct worked examples
 
-**This category is empty, and that is a deliberate state, not an oversight.**
+**Updated 2026-09-12.** The manual arrived, as IACHY102 (see
+`manual/README.md` and `docs/final_audit.md` for the course-code
+mismatch this uncovered). Of the 10 assessed experiments, exactly **one**
+— Experiment 1 (Zn–Cu EMF thermodynamics) — has a fully worked numeric
+example printed in the manual (p.13–15), and `exp01.json` transcribes it
+verbatim. The other 9 experiments' manual sections either give no worked
+example at all, or leave the observation tables blank for the student's
+own run — see `manual/IACHY102_manual.md`'s summary table at the bottom
+for the per-experiment breakdown. Those 9 stay absent from this
+directory rather than getting fabricated ground truth.
 
 Category 1 is defined by `docs/golden_dataset_plan.md` as values pulled
-*directly and verbatim* from the BACHY105 manual's own solved sample
-calculations. The manual PDF is not present in this repository, so there
-are no worked examples to transcribe.
+*directly and verbatim* from the manual's own solved sample calculations.
 
 Fabricating plausible-looking chemistry here would be the worst available
 option. A ground-truth file is the thing every Tier 1 test measures itself
@@ -14,7 +21,7 @@ is measuring nothing, while *looking* like verified coverage. CLAUDE.md
 ("Testing philosophy") and AGENTS.md (`test-builder`) both say this
 outright: a fabricated ground truth is worse than no test.
 
-## What to do when the manual arrives
+## What to do for the remaining 9 experiments, if a worked example ever surfaces
 
 For each experiment that the manual gives a solved example for, add
 `expNN.json` in this directory:

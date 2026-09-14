@@ -88,8 +88,10 @@ async def test_invalid_input_never_reaches_tier_2_or_3(fake_llm, plugin):
 
 
 async def test_unconfigured_experiment_escalates_rather_than_guessing(fake_llm):
+    # exp02 is still a PendingManualPlugin (formula known, no worked
+    # example to verify against yet) -- exp01 is now a real plugin.
     outcome = await run_diagnosis(
-        get_plugin("exp01"), inputs={"anything": 1}, reported_value=1.0
+        get_plugin("exp02"), inputs={"anything": 1}, reported_value=1.0
     )
     assert outcome.status is DiagnosisStatus.ESCALATED
     assert outcome.tier == 3
