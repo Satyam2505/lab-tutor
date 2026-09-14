@@ -1,9 +1,16 @@
-"""LLM-assisted qualitative note for Experiments 7 and 8 only.
+"""LLM-assisted qualitative note for Experiment 8 only.
 
 This is the single exception to the rule that a model never contributes
-to a judgment in this system. Those two experiments assess a
-*computational method choice*, so there is no measured value to recompute
-and no deterministic expected-vs-reported check to make.
+to a judgment in this system. Experiment 8 (conformational analysis of
+ethane and cyclohexane) assesses a *computational method choice*, so
+there is no measured value to recompute and no deterministic
+expected-vs-reported check to make.
+
+Corrected from an earlier guess: this module used to also allow
+Experiment 7. The IACHY102 manual (once available) showed Experiment 7 is
+a different problem shape -- a single-run orbital-energy report with no
+ordering to check -- so it does not fit this narrative-note mechanism at
+all. See `backend/tier1_compute/experiments/exp07.py`.
 
 The exception is kept as small as possible:
 
@@ -32,7 +39,7 @@ from backend.rag.retrieval import retrieve
 
 log = logging.getLogger(__name__)
 
-ALLOWED_EXPERIMENTS = frozenset({"exp07", "exp08"})
+ALLOWED_EXPERIMENTS = frozenset({"exp08"})
 
 SYSTEM_PROMPT = """\
 You are assisting a demonstrator reviewing a first-year computational \

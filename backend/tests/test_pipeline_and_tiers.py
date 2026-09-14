@@ -153,7 +153,7 @@ def test_tier3_has_no_confidence_score():
 
 def test_qualitative_ordering_violation_is_deterministic():
     """No model involved in the ordering check itself."""
-    plugin = get_plugin("exp07")
+    plugin = get_plugin("exp08")
     result = plugin.check(
         {"energies": {"ethane_staggered": -79.7, "ethane_eclipsed": -79.8}}, None
     )
@@ -163,7 +163,7 @@ def test_qualitative_ordering_violation_is_deterministic():
 
 async def test_consistent_ordering_still_escalates(fake_llm):
     """Ordering being right is necessary, not sufficient."""
-    plugin = get_plugin("exp07")
+    plugin = get_plugin("exp08")
     outcome = await run_diagnosis(
         plugin,
         inputs={"energies": {"ethane_staggered": -79.8, "ethane_eclipsed": -79.7}},
@@ -182,16 +182,28 @@ def test_missing_conformers_are_skipped_not_failed():
 
 
 def test_qualitative_plugins_have_no_numeric_steps():
-    plugin = get_plugin("exp07")
+    plugin = get_plugin("exp08")
     result = plugin.check_step(0, {}, 1.0)
     assert result.outcome.value == "not_applicable"
 
 
-def test_only_two_experiments_are_qualitative():
+def test_exp07_is_pending_manual_not_a_qualitative_plugin():
+    """Exp7 is the orbital-contribution workflow, not an ordering check --
+    see backend/tier1_compute/experiments/exp07.py. It must raise rather
+    than silently reuse exp08's ordering logic."""
+    from backend.tier1_compute.experiments.registry import ManualNotTranscribedError
+
+    plugin = get_plugin("exp07")
+    assert plugin.kind == "pending_manual"
+    with pytest.raises(ManualNotTranscribedError):
+        plugin.check({}, None)
+
+
+def test_only_one_experiment_is_qualitative():
     from backend.tier1_compute.experiments import all_plugins
 
     qualitative = [p.id for p in all_plugins() if p.kind == "qualitative_ordering"]
-    assert qualitative == ["exp07", "exp08"]
+    assert qualitative == ["exp08"]
 
 
 def test_all_ten_experiments_are_registered():

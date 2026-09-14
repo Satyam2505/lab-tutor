@@ -290,8 +290,8 @@ class TestFlaggedMessagesReachStaff:
         student, student_token = await make_user("qa.student@vitstudent.ac.in")
         prof, prof_token = await make_user("qa.prof@vit.ac.in")
         classroom = await create_classroom(db, owner_id=prof.id, name="QA section")
-        # exp07 is one of the two experiments with steps configured.
-        await set_active_experiment(db, classroom, experiment_id="exp07")
+        # exp08 has steps configured (the ordering-check experiment).
+        await set_active_experiment(db, classroom, experiment_id="exp08")
         await join_classroom(db, student_id=student.id, join_code=classroom.join_code)
         await db.commit()
 

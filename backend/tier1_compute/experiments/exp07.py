@@ -1,87 +1,52 @@
-"""Experiment 07 -- computational method choice (ethane conformers).
+"""Experiment 07 -- Build atoms/molecules; orbital visualization; orbital
+contributions (Gabedit -> ORCA -> Avogadro; CH4 and O2).
 
-STATUS: mechanism implemented; experiment identity pending manual check.
+STATUS: NOT IMPLEMENTED. Registered as PendingManualPlugin so any attempt
+to use it raises rather than silently reusing the wrong logic.
 
-This is one of the two experiments that verify a *computational method
-choice* (ORCA / orbital calculations) rather than a measured quantity.
-There is no manual formula to recompute and no measured-vs-expected
-comparison to make, so the ordinary Tier 1 path does not apply.
+Corrected from the pre-manual guess: the earlier code registered exp07 as
+a `QualitativeOrderingPlugin` checking ethane_staggered < ethane_eclipsed.
+That is Experiment 8's content (see `exp08.py`), not Experiment 7's. The
+real Experiment 7 (IACHY102 manual, p.39-42) is a DFT/orbital-contribution
+workflow with no ordering to check at all: it asks the student to run six
+method/basis-set combinations (B3LYP and B3P, each with 6-31G/6-31G*/
+6-31G**) for CH4 and O2, and report HOMO/LUMO orbital energies (eV) plus
+the s/p/d/f electron-count contribution per atom.
 
-What is checked deterministically: the relative ordering the chemistry
-requires. Staggered ethane must come out lower in energy than eclipsed
-ethane. If the student's reported numbers contradict that, the finding is
-determinate and needs no model. If they are consistent, that is
-necessary but not sufficient -- the method choice itself still needs a
-human eye -- so the result escalates to Tier 3 rather than being reported
-as a pass.
-
-An LLM may additionally read the student's method narrative, but only to
-produce a low-confidence, escalation-biased note (see
-`backend/rag/qualitative.py`). This and `exp08` are the only places in
-the system where a model contributes to a judgment at all.
-
-TODO (manual): confirm that experiment 7 in the BACHY105 manual is in
-fact the ethane conformer calculation, and that the manual asks for the
-comparison encoded below. The conformer ordering itself is standard
-chemistry, but the experiment *numbering* and the exact labels students
-are told to report must be verified against the manual before the pilot.
+None of the four shared checker types fit this shape -- there is no
+manual formula to recompute and no measured-vs-expected comparison, and
+unlike Experiment 8 there is also no ordering between two conformers to
+check (a single molecule at a single level of theory has one HOMO, one
+LUMO). What a Tier 1 checker *could* verify deterministically, once
+designed: job-completion/convergence markers in the ORCA output, and
+physics-consistency facts that always hold regardless of the manual's
+specific numbers (LUMO energy > HOMO energy for the same run; energy
+after geometry optimization <= the initial single-point energy). That is
+a fifth shared-checker shape ("computation sanity/convergence checker")
+that does not exist yet in `backend/tier1_compute/shared/` -- do not
+force this into `QualitativeOrderingPlugin` or `DirectFormulaChecker` to
+make it "ready"; build the new checker type first. See
+`docs/final_audit.md`.
 """
 
 from __future__ import annotations
 
-from backend.tier1_compute.experiments.registry import (
-    QualitativeOrderingPlugin,
-    register,
-)
-from backend.tier1_compute.shared.types import StepSpec
+from backend.tier1_compute.experiments.registry import PendingManualPlugin, register
 
 EXPERIMENT_ID = "exp07"
 
-#: Reported-energy keys and the ordering that must hold between them.
-#: Read as: the first label must be LOWER in energy than the second.
-ORDERINGS: tuple[tuple[str, str], ...] = (
-    ("ethane_staggered", "ethane_eclipsed"),
-)
-
-STEPS: tuple[StepSpec, ...] = (
-    StepSpec(
-        index=0,
-        key="geometry_setup",
-        prompt=(
-            "Build both ethane conformers and report the dihedral angle you "
-            "used for each one."
-        ),
-        hints=(
-            "Look again at how the two structures differ when you sight down "
-            "the C-C bond.",
-            "The two conformers are defined by the H-C-C-H dihedral angle. "
-            "Check what value you set for each.",
-            "One of your two geometries does not correspond to the conformer "
-            "you have labelled it as -- re-check which dihedral belongs to "
-            "which name before running the calculation.",
-        ),
-    ),
-    StepSpec(
-        index=1,
-        key="single_point_energies",
-        prompt="Report the converged energy you obtained for each conformer.",
-        hints=(
-            "Check whether both calculations actually reached convergence.",
-            "Compare the two energies against each other -- does their order "
-            "match what you would predict from the geometries?",
-            "Your reported ordering disagrees with the geometry you described; "
-            "either the labels are swapped or one job did not converge.",
-        ),
-        is_final=True,
-    ),
-)
-
 register(
-    QualitativeOrderingPlugin(
+    PendingManualPlugin(
         id=EXPERIMENT_ID,
-        title="Conformational energies of ethane (computational)",
-        manual_reference="TODO: confirm section/page against the BACHY105 manual",
-        orderings=ORDERINGS,
-        step_specs=STEPS,
+        title="Build atoms and molecules; orbital contributions (Gabedit/ORCA/Avogadro)",
+        manual_reference="IACHY102 manual, p.39-42",
+        reason=(
+            "No shared checker type covers a single-run orbital-energy "
+            "report (no recompute-and-compare formula, no ordering "
+            "between two values). Needs a new 'computation sanity' "
+            "checker type (job-completion + HOMO<LUMO + energy-decreased-"
+            "after-optimization) before this can be enabled; see the "
+            "module docstring."
+        ),
     )
 )

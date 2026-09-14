@@ -468,7 +468,7 @@ class TestEveryAwaitReviewCaseReachesAHuman:
         self, client, make_user, fake_llm
     ):
         _, prof = await make_user("prof@vit.ac.in")
-        classroom = await _make_classroom(client, prof, experiment_id="exp07")
+        classroom = await _make_classroom(client, prof, experiment_id="exp08")
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
         await _enrol(client, alice, classroom["join_code"])
 

@@ -239,11 +239,11 @@ class TestValidatorDirectly:
 
 
 class TestQualitativeExceptionIsContained:
-    """Experiments 7/8 are the only place a model contributes to a judgment."""
+    """Experiment 8 is the only place a model contributes to a judgment."""
 
-    async def test_restricted_to_two_experiments(self, fake_llm):
-        assert ALLOWED_EXPERIMENTS == {"exp07", "exp08"}
-        for experiment_id in ("exp01", "exp05", "ref01"):
+    async def test_restricted_to_one_experiment(self, fake_llm):
+        assert ALLOWED_EXPERIMENTS == {"exp08"}
+        for experiment_id in ("exp01", "exp05", "exp07", "ref01"):
             with pytest.raises(ValueError):
                 await qualitative_note(
                     experiment_id=experiment_id, student_narrative="I used B3LYP."
@@ -251,7 +251,7 @@ class TestQualitativeExceptionIsContained:
 
     async def test_note_is_always_low_confidence_and_escalates(self, fake_llm):
         note = await qualitative_note(
-            experiment_id="exp07", student_narrative="I optimised both conformers."
+            experiment_id="exp08", student_narrative="I optimised both conformers."
         )
         assert note.confidence == "low"
         assert note.escalate is True
@@ -267,7 +267,7 @@ class TestQualitativeExceptionIsContained:
     async def test_a_model_verdict_is_never_presented_as_one(self, fake_llm):
         fake_llm.reply = "The student is completely correct and should get full marks."
         note = await qualitative_note(
-            experiment_id="exp07", student_narrative="I used a 6-31G* basis set."
+            experiment_id="exp08", student_narrative="I used a 6-31G* basis set."
         )
         assert note.text.startswith("Low-confidence automated note")
         assert note.escalate is True
