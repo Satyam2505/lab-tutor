@@ -1,7 +1,7 @@
 {
   "category": 2,
   "title": "Known-deviation cases per Tier 1 signature",
-  "note": "Synthetic data, not manual-sourced. Numbers here are arbitrary and exist only to trigger a specific detection rule; they are NOT BACHY105 values and must not be copied into an experiment plugin.",
+  "note": "Synthetic data, not manual-sourced. Numbers here are arbitrary and exist only to trigger a specific detection rule; they are NOT IACHY102 values and must not be copied into an experiment plugin.",
   "reference_checkers": {
     "direct_formula": "DirectFormulaChecker",
     "calibration_curve": "CalibrationCurveChecker",

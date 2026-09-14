@@ -17,7 +17,7 @@ Three plugin kinds exist:
 
 ``PendingManualPlugin``
     A slot whose formulas have not yet been transcribed from the
-    BACHY105 manual. It raises on use rather than guessing. This is the
+    IACHY102 manual. It raises on use rather than guessing. This is the
     state every numeric experiment ships in until the manual PDF is
     committed -- see README "Known limitations".
 """
@@ -109,7 +109,7 @@ class DeterministicPlugin(ExperimentPlugin):
         if self.checker is None:
             raise ManualNotTranscribedError(
                 f"{self.id}: no checker configured. Transcribe the formula and "
-                "tolerance from the BACHY105 manual before enabling this experiment."
+                "tolerance from the IACHY102 manual before enabling this experiment."
             )
         return self.checker.check(inputs, reported)
 
@@ -431,7 +431,7 @@ class ComputationSanityPlugin(ExperimentPlugin):
 class PendingManualPlugin(ExperimentPlugin):
     """A registered experiment whose manual data has not been transcribed."""
 
-    reason: str = "BACHY105 manual not present in the repository"
+    reason: str = "IACHY102 manual not present in the repository"
 
     @property
     def kind(self) -> str:

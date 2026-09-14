@@ -1,0 +1,22 @@
+{
+  "generated": 623,
+  "by_experiment": {
+    "exp07": 170,
+    "exp02": 115,
+    "exp03": 115,
+    "exp08": 115,
+    "exp01": 18,
+    "exp04": 18,
+    "exp05": 18,
+    "exp06": 18,
+    "exp09": 18,
+    "exp10": 18
+  },
+  "priority_targets": {
+    "exp07": 170,
+    "exp02": 115,
+    "exp03": 115,
+    "exp08": 115
+  },
+  "baseline_per_unknown_experiment": 18
+}

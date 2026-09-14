@@ -61,7 +61,7 @@ def steps_for(plugin: ExperimentPlugin) -> tuple[StepSpec, ...]:
     if not steps:
         raise ManualNotTranscribedError(
             f"{plugin.id}: no Socratic steps configured. Transcribe the ordered "
-            "procedure from the BACHY105 manual before enabling this experiment."
+            "procedure from the IACHY102 manual before enabling this experiment."
         )
     return steps
 

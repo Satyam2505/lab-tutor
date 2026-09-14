@@ -29,7 +29,7 @@ For each experiment that the manual gives a solved example for, add
 ```json
 {
   "experiment_id": "exp01",
-  "manual_reference": "BACHY105 manual, section 1.4, p. 12",
+  "manual_reference": "IACHY102 manual, section 1.4, p. 12",
   "inputs": { "standard_normality": 0.1, "standard_volume": 25.0 },
   "expected_output": 0.125,
   "expected_output_field": "normality_of_unknown",

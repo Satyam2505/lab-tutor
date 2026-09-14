@@ -1,0 +1,81 @@
+{
+  "manifest_version": "1.0",
+  "updated": "2026-09-12",
+  "note": "The authoritative list of everything LabTutor may answer from. Nothing is ingested unless it is declared here, which is what stops material of one tier being mixed into another. 'present: false' means the file is expected but absent from this checkout; ingestion reports it as blocked rather than skipping it silently.",
+  "documents": [
+    {
+      "document_id": "iachy102_manual_2026_27",
+      "tier": "A",
+      "role": "official_manual",
+      "filename": "manual/IACHY102-2026-27-manual_2_260830_133124.pdf",
+      "title": "IACHY102 Engineering Chemistry Laboratory manual (2026-27)",
+      "version": "2026-27.manual_2.260830_133124",
+      "experiments": ["exp01", "exp02", "exp03", "exp04", "exp05", "exp06", "exp07", "exp08", "exp09", "exp10"],
+      "present": false,
+      "visual": true,
+      "notes": "SOURCE OF TRUTH. Authority for experiment numbering, scope, procedures, formulas, calculations, terminology, software workflow, tables, expected relationships, screenshots and worked examples. Not committed: it is department course material and redistribution is their call (see .gitignore). Drop it at this path and re-run ingestion; no code change is needed."
+    },
+    {
+      "document_id": "iachy102_manual_legacy_bachy105",
+      "tier": "A",
+      "role": "official_manual",
+      "filename": "manual/BACHY105.pdf",
+      "title": "BACHY105 Applied Chemistry Laboratory manual (superseded)",
+      "version": "legacy",
+      "experiments": [],
+      "present": false,
+      "visual": true,
+      "superseded_by": "iachy102_manual_2026_27",
+      "notes": "The manual the first two build sessions targeted. Retained in the manifest only so that a stray copy on someone's machine is recognised and REFUSED rather than ingested as current. Ingestion must never index a superseded document."
+    },
+    {
+      "document_id": "exp07_student_script",
+      "tier": "B",
+      "role": "student_script",
+      "filename": "sources/tier_b/exp07_student_script.pdf",
+      "title": "Experiment 7 student worksheet",
+      "version": "unknown",
+      "experiments": ["exp07"],
+      "present": false,
+      "visual": true,
+      "notes": "Officially supplied material accompanying the experiment. Authoritative about itself, subordinate to the manual about the experiment. Where it contradicts Tier A the conflict is flagged, never silently resolved. Not present in this checkout."
+    },
+    {
+      "document_id": "exp07_professor_script",
+      "tier": "B",
+      "role": "professor_script",
+      "filename": "sources/tier_b/exp07_professor_script.pdf",
+      "title": "Experiment 7 demonstrator notes",
+      "version": "unknown",
+      "experiments": ["exp07"],
+      "present": false,
+      "visual": true,
+      "notes": "Not present in this checkout. Note for whoever adds it: demonstrator notes may contain answer keys. Anything ingested from a professor-facing document is reachable by a student question, so review it for answer-key content before ingesting, and keep it out of Socratic-mode retrieval entirely."
+    },
+    {
+      "document_id": "adjacent_knowledge_v1",
+      "tier": "C",
+      "role": "supplementary_material",
+      "filename": "knowledge/adjacent/",
+      "title": "LabTutor curated adjacent knowledge",
+      "version": "1.0",
+      "experiments": ["exp02", "exp03", "exp07", "exp08"],
+      "present": true,
+      "visual": false,
+      "notes": "Written for LabTutor to answer Level 2 questions: broader theory, general software concepts, background the manual does not cover. NEVER presented as the manual; every answer drawn from it carries a visible supplementary label. May not supply procedure, formula or numbering for any experiment."
+    },
+    {
+      "document_id": "golden_qa_v1",
+      "tier": "C",
+      "role": "generated_test_material",
+      "filename": "golden_dataset/qa/",
+      "title": "LabTutor golden QA dataset",
+      "version": "1.0",
+      "experiments": ["exp01", "exp02", "exp03", "exp04", "exp05", "exp06", "exp07", "exp08", "exp09", "exp10"],
+      "present": true,
+      "visual": false,
+      "indexable": false,
+      "notes": "Evaluation material only. Explicitly NOT indexed for retrieval: a system that can retrieve its own test set scores well for the wrong reason. The ingester refuses any document with indexable=false."
+    }
+  ]
+}
