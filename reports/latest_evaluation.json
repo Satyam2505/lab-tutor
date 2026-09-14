@@ -1,0 +1,75 @@
+{
+  "generated_by": "evaluation/build_reports.py",
+  "judge_model": "qwen3:8b (Ollama, local)",
+  "generation_model": "qwen3:8b (Ollama, local) -- SAME as judge; see judge_independence note",
+  "judge_independence": "NOT independent. LabTutor's own generation LLM and the judge LLM are the same qwen3:8b instance in this run, because no other model is configured in this checkout (LABTUTOR_LLM_BACKEND defaults to 'hosted' with no API key). Scores below should be read as a self-consistency check, not an independent quality audit.",
+  "dataset_total_cases": 16,
+  "cases_evaluated": 16,
+  "cases_generation_failed": 0,
+  "cases_skipped_not_run": 0,
+  "cases_judge_failed": 0,
+  "overall": {
+    "intent_classification_accuracy": 1.0,
+    "retrieval_recall_at_1": 0.643,
+    "retrieval_recall_at_3": 1.0,
+    "citation_correctness": 0.643,
+    "answer_gate_redaction_events": 0,
+    "qwen_judged_relevance": 0.875,
+    "qwen_judged_grounded_in_context": 0.75,
+    "qwen_judged_hallucination_rate": 0.0,
+    "qwen_judged_answer_leak_rate": 0.0,
+    "qwen_judged_scope_handling_correct": 0.875,
+    "avg_generation_latency_seconds": 15.5,
+    "ragas_metrics": "NOT AVAILABLE -- see reports/ragas_results.json"
+  },
+  "per_experiment": [
+    {
+      "experiment": "exp01",
+      "cases_in_dataset": 3,
+      "cases_evaluated": 3,
+      "intent_accuracy": 1.0,
+      "recall_at_1": 1.0,
+      "citation_correct": 1.0,
+      "relevance": 1.0
+    },
+    {
+      "experiment": "exp02",
+      "cases_in_dataset": 3,
+      "cases_evaluated": 3,
+      "intent_accuracy": 1.0,
+      "recall_at_1": 0.0,
+      "citation_correct": 0.0,
+      "relevance": 0.667
+    },
+    {
+      "experiment": "exp03",
+      "cases_in_dataset": 3,
+      "cases_evaluated": 3,
+      "intent_accuracy": 1.0,
+      "recall_at_1": 0.0,
+      "citation_correct": 0.0,
+      "relevance": 1.0
+    },
+    {
+      "experiment": "exp07",
+      "cases_in_dataset": 4,
+      "cases_evaluated": 4,
+      "intent_accuracy": 1.0,
+      "recall_at_1": 1.0,
+      "citation_correct": 1.0,
+      "relevance": 1.0
+    },
+    {
+      "experiment": "exp08",
+      "cases_in_dataset": 3,
+      "cases_evaluated": 3,
+      "intent_accuracy": 1.0,
+      "recall_at_1": 1.0,
+      "citation_correct": 1.0,
+      "relevance": 0.667
+    }
+  ],
+  "failed_case_ids": [],
+  "skipped_case_ids": [],
+  "judge_failed_case_ids": []
+}

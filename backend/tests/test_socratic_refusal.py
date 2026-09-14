@@ -35,6 +35,21 @@ def plugin():
     return reference_plugin()
 
 
+@pytest.fixture(autouse=True)
+def _no_manual_retrieval(monkeypatch):
+    """This module's `reference_plugin` is synthetic and matches nothing
+    real in the manual. Now that retrieval is real (see
+    docs/final_audit.md), letting it run here would make the leak-check
+    below depend on whichever real manual passage happens to share
+    vocabulary with the synthetic step prompt -- and whether that
+    passage's own, legitimate numbers happen to collide with this
+    module's fixture constants (they did: a real "4 standards" from an
+    unrelated experiment's manual text tripped the check). That is not
+    what this module tests -- `test_retrieval.py` covers real retrieval
+    content; this one covers the answer-gate's structural guarantee."""
+    monkeypatch.setattr("backend.socratic_engine.chat.retrieve", lambda *a, **k: [])
+
+
 def _sequences() -> list[dict]:
     return load_golden("category5_socratic_probing", "cases.json")["sequences"]
 

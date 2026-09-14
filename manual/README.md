@@ -8,17 +8,21 @@ for why that matters and what was taken on faith vs. verified.
 
 Its text is transcribed in `IACHY102_manual.md` in this directory —
 pasted in-chat as document content during a Claude Code session, not
-uploaded as a PDF file. **No PDF binary has been placed here.** If the
-actual PDF becomes available, drop it in as `IACHY102.pdf` and update
-`LABTUTOR_MANUAL_PDF` / `infra/docker-compose.yml` accordingly — the
-existing `backend/rag/retrieval.py` reads a PDF path directly via
-`pypdf` and does not yet know how to ingest the markdown transcription
-instead, so retrieval/citation will still return nothing until one of
-those two things happens. This is a real, open gap — see
-`docs/final_audit.md` §2, row 2.
+uploaded as a PDF file. **No PDF binary has been placed here.**
 
-`IACHY102_manual.md` is nonetheless now the source of truth for every
-formula, tolerance, experiment name and worked example a Tier 1 plugin
-should use — see `docs/final_audit.md` §4 for which of the 10 assessed
-experiments have been implemented against it so far (one, Experiment 1)
-and which are still `PendingManualPlugin` and why.
+**Update (2026-09-14): retrieval is fixed.** `backend/rag/retrieval.py`
+now dispatches on file extension — a `.md` path (this file) is chunked
+by its `## Experiment N ... (p.X-Y)` headings via `_chunk_markdown`
+rather than pushed through `pypdf`. `LABTUTOR_MANUAL_PDF` defaults here
+already. If a real PDF ever becomes available, dropping it in as
+`IACHY102.pdf` and repointing the setting still works too (the old PDF
+path through `pypdf` is untouched) — it's no longer required, just an
+option. See `docs/final_audit.md` §7 for what was verified live (19
+passages indexed; correct top-ranked section for both an Exp7 Hinglish
+query and an Exp2 kinetics query).
+
+`IACHY102_manual.md` is the source of truth for every formula,
+tolerance, experiment name and worked example a Tier 1 plugin should
+use — see `docs/final_audit.md` §4 for which of the 10 assessed
+experiments have real plugins so far (1, 2, 3, 7, 8) and which are still
+`PendingManualPlugin` and why (4, 5, 6, 9, 10).

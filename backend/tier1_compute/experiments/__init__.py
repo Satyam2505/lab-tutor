@@ -11,6 +11,7 @@ import importlib
 import pkgutil
 
 from backend.tier1_compute.experiments.registry import (  # noqa: F401
+    ComputationSanityPlugin,
     DeterministicPlugin,
     ExperimentPlugin,
     ManualNotTranscribedError,
@@ -34,6 +35,7 @@ def _load_plugins() -> None:
 _load_plugins()
 
 __all__ = [
+    "ComputationSanityPlugin",
     "DeterministicPlugin",
     "ExperimentPlugin",
     "ManualNotTranscribedError",

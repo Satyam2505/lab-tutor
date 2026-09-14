@@ -1,0 +1,46 @@
+{
+  "generated_by": "evaluation/build_reports.py",
+  "judge_model": "qwen3:8b (Ollama, local)",
+  "generation_model": "qwen3:8b (Ollama, local) -- SAME as judge; see judge_independence note",
+  "judge_independence": "NOT independent. LabTutor's own generation LLM and the judge LLM are the same qwen3:8b instance in this run, because no other model is configured in this checkout (LABTUTOR_LLM_BACKEND defaults to 'hosted' with no API key). Scores below should be read as a self-consistency check, not an independent quality audit.",
+  "dataset_total_cases": 34,
+  "cases_evaluated": 30,
+  "cases_generation_failed": 0,
+  "cases_skipped_not_run": 0,
+  "cases_blocked_no_image_asset": 4,
+  "cases_judge_failed": 0,
+  "overall": {
+    "intent_classification_accuracy": 1.0,
+    "retrieval_recall_at_1": 1.0,
+    "retrieval_recall_at_3": 1.0,
+    "citation_correctness": 1.0,
+    "answer_gate_redaction_events": 1,
+    "qwen_judged_relevance": 1.0,
+    "qwen_judged_grounded_in_context": 1.0,
+    "qwen_judged_hallucination_rate": 0.0,
+    "qwen_judged_answer_leak_rate": 0.0,
+    "qwen_judged_scope_handling_correct": 1.0,
+    "avg_generation_latency_seconds": 8.25,
+    "ragas_metrics": "NOT AVAILABLE -- see reports/ragas_results.json"
+  },
+  "per_experiment": [
+    {
+      "experiment": "exp07",
+      "cases_in_dataset": 34,
+      "cases_evaluated": 30,
+      "intent_accuracy": 1.0,
+      "recall_at_1": 1.0,
+      "citation_correct": 1.0,
+      "relevance": 1.0
+    }
+  ],
+  "failed_case_ids": [],
+  "skipped_case_ids": [],
+  "blocked_no_image_asset_case_ids": [
+    "e07-31",
+    "e07-32",
+    "e07-33",
+    "e07-34"
+  ],
+  "judge_failed_case_ids": []
+}

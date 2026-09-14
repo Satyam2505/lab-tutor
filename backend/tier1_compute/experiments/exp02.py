@@ -1,47 +1,117 @@
-"""Experiment 02 -- Determination of reaction rate, order and molecularity - ester hydrolysis.
+"""Experiment 02 -- Determination of reaction rate, order and molecularity:
+acid-catalysed hydrolysis of ethyl acetate (IACHY102 manual, p.16-19).
 
-STATUS: pending implementation (formula/shape known; no worked example to
-verify against). See `manual/IACHY102_manual.md` for the full transcription
-and `docs/final_audit.md` for the audit finding this comes from.
+STATUS: implemented, with tolerance/fit-quality DEFAULTS the manual does
+not state (see below) -- not a manual-verified worked example. Unblocks
+Socratic session-start for this experiment; see docs/final_audit.md for
+why this differs from Experiment 1's fully manual-grounded checker.
 
-The IACHY102 manual is now in the repository (as a text transcription --
-see manual/README.md), so the earlier "manual not present" reason no
-longer applies. Formula is known (k1' = slope * 2.303 from a fit of log(V_inf - V_t) vs t -- a regression_slope shape) but the manual prints no worked numeric example (Table-1, p.19, is blank), so there is no manual-verified number to pin a Category 1 test against yet.
+The manual's own formulas (p.18), transcribed exactly:
 
-To complete this file:
+    k1' = (2.303/t) * log10[(V_inf - V0) / (V_inf - Vt)]
+    k1' = slope * 2.303   (from a plot of log10(V_inf - Vt) vs t)
 
-1. Wire a `DeterministicPlugin` to the shared checker type named above.
-   Do NOT write bespoke math here; if it genuinely does not fit, add a
-   fifth shared checker type instead (see AGENTS.md, `tier1-compute-builder`).
-2. Choose the tolerance deliberately and document why in a comment --
-   the manual gives no experiment-specific numeric acceptance band beyond
-   the course-wide marking rubric (p.8), which is a marks-vs-skill-value
-   scale, not a Tier 1 self-consistency tolerance. Do not conflate them.
-3. Add the ordered `StepSpec`s for Socratic mode, each with its
-   three-rung hint ladder. No rung may contain the numeric answer --
-   `tests/test_socratic_refusal.py` asserts this structurally.
-4. If a worked example ever surfaces (an assignment key, a solved past
-   paper, etc.), add it to `golden_dataset/category1_worked_examples/`
-   verbatim and a test that this plugin reproduces it. Until then, this
-   experiment's Category 1 coverage stays absent -- do not fabricate one.
+where V0/Vt/V_inf are NaOH titre volumes at t=0, at time t, and at
+completion. `RegressionSlopeChecker`'s `y_reference_key` mechanism (added
+this session -- see backend/tier1_compute/shared/regression_slope.py)
+handles this: the per-point transform needs the student's own V_inf
+reading, not a manual constant, at every point.
 
-A worked reference implementation of all of the above lives in
-`_template.py`; `exp01.py` is a complete real example.
+One interpretive choice, not stated explicitly in the manual: the printed
+"k1' = Slope x 2.303" has no minus sign, but the plotted quantity
+log10(V_inf - Vt) DECREASES as t increases (Vt approaches V_inf), so its
+slope is negative, while a rate constant is conventionally reported
+positive. `slope_to_value` below applies `-slope * 2.303`, the standard
+kinetics sign convention, not new chemistry -- flagged here rather than
+silently baked in.
+
+The manual gives no experiment-specific numeric tolerance or fit-quality
+floor (unlike Experiment 1, it has no worked numeric example at all --
+see manual/IACHY102_manual.md's summary table). `tolerance`,
+`min_r_squared` and `min_points` below are therefore deliberate
+engineering defaults for a self-consistency check, not manual-derived
+values -- revisit if a worked example or course-stated tolerance ever
+surfaces.
 """
 
 from __future__ import annotations
 
-from backend.tier1_compute.experiments.registry import PendingManualPlugin, register
+import math
+from typing import Any
+
+from backend.tier1_compute.experiments.registry import DeterministicPlugin, register
+from backend.tier1_compute.shared import RegressionSlopeChecker, StepSpec, Tolerance
 
 EXPERIMENT_ID = "exp02"
 
+
+def _log_remaining_ester(vt: float, v_inf: float) -> float:
+    """log10(V_inf - Vt) -- p.18. Undefined once Vt reaches V_inf."""
+    return math.log10(v_inf - vt)
+
+
+FINAL_CHECKER = RegressionSlopeChecker(
+    x_key="time_min",
+    y_key="titre_volume_ml",
+    y_reference_key="titre_volume_at_completion_ml",
+    reference_transform=_log_remaining_ester,
+    slope_to_value=lambda slope: -slope * 2.303,
+    tolerance=Tolerance(rel_tol=0.05),  # DEFAULT -- see module docstring
+    min_r_squared=0.98,  # DEFAULT -- see module docstring
+    min_points=4,  # DEFAULT floor; manual's own table uses 7 (p.19)
+    expect_direction="increasing",  # NaOH titre rises as acetic acid forms
+    label="rate constant k1' (ester hydrolysis)",
+)
+
+STEPS: tuple[StepSpec, ...] = (
+    StepSpec(
+        index=0,
+        key="titration_readings",
+        prompt=(
+            "Record the NaOH titre volume at each time interval, and the "
+            "titre volume once the reaction has gone to completion (V_inf)."
+        ),
+        requires=("time_min", "titre_volume_ml", "titre_volume_at_completion_ml"),
+        hints=(
+            "Check you kept the sample in ice before titrating, so the "
+            "reaction does not keep going during the titration itself.",
+            "V_inf should be noticeably larger than any of your timed "
+            "readings -- check it was taken after the completion step, "
+            "not accidentally one of the timed points.",
+            "One of your timed readings is larger than V_inf, which is "
+            "not physically possible for this reaction -- re-check which "
+            "reading is which.",
+        ),
+    ),
+    StepSpec(
+        index=1,
+        key="rate_constant",
+        prompt="Plot log10(V_inf - Vt) against t and calculate k1' from the slope.",
+        requires=(
+            "time_min",
+            "titre_volume_ml",
+            "titre_volume_at_completion_ml",
+        ),
+        tolerance=Tolerance(rel_tol=0.05),
+        hints=(
+            "Check you plotted log10(V_inf - Vt), not Vt itself, against time.",
+            "Your points do not sit close to a straight line -- check for "
+            "a mistimed reading or a transcription error in one row.",
+            "The slope you have used does not match your own plotted "
+            "points; re-read the slope off your own line rather than "
+            "recalculating it from two endpoints.",
+        ),
+        is_final=True,
+    ),
+)
+
 register(
-    PendingManualPlugin(
+    DeterministicPlugin(
         id=EXPERIMENT_ID,
         title="Determination of reaction rate, order and molecularity - ester hydrolysis",
         manual_reference="IACHY102 manual, p.16-19",
-        reason=(
-            "Formula is known (k1' = slope * 2.303 from a fit of log(V_inf - V_t) vs t -- a regression_slope shape) but the manual prints no worked numeric example (Table-1, p.19, is blank), so there is no manual-verified number to pin a Category 1 test against yet."
-        ),
+        checker=FINAL_CHECKER,
+        step_specs=STEPS,
+        step_checkers={1: FINAL_CHECKER},
     )
 )

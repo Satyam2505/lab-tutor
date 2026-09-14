@@ -114,7 +114,9 @@ def test_category2_covers_every_documented_signature():
         "standards_not_bracketing",  # reserved; superseded by extrapolation
         "no_detectable_endpoint",  # covered in test_tier1_checkers, not by data
         "endpoint_outside_data_range",  # ditto
-        "conformer_ordering_violated",  # exercised in the exp07/exp08 tests
+        "conformer_ordering_violated",  # exercised in the exp08 tests
+        "energy_increased_after_optimization",  # exercised in the exp07 tests
+        "homo_lumo_order_violated",  # exercised in the exp07 tests
     }
     missing = set(_SIGNATURE_ACTIONS) - covered - known_uncovered
     assert not missing, f"signatures with no Category 2 case: {sorted(missing)}"

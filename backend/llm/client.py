@@ -19,6 +19,23 @@ from backend.config import Settings, get_settings
 log = logging.getLogger(__name__)
 
 
+#: Bounds how many LLM calls run at once across every backend instance
+#: and every caller (chat, phrasing, qualitative note) -- see
+#: `Settings.llm_max_concurrency`'s docstring for why. Lazily built (an
+#: `asyncio.Semaphore` binds to whichever loop is running when it's
+#: first used, so it must not be constructed at import time) and reset
+#: alongside the backend cache so a settings reload -- or a test that
+#: changes `LABTUTOR_LLM_MAX_CONCURRENCY` -- picks up the new limit.
+_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    global _semaphore
+    if _semaphore is None:
+        _semaphore = asyncio.Semaphore(get_settings().llm_max_concurrency)
+    return _semaphore
+
+
 class LLMUnavailable(RuntimeError):
     """No configured backend could serve the request.
 
@@ -83,12 +100,13 @@ class HostedBackend(LLMBackend):
         }
         headers = {"Authorization": f"Bearer {self._api_key}"}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    f"{self._base_url}/chat/completions", json=payload, headers=headers
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            async with _get_semaphore():
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(
+                        f"{self._base_url}/chat/completions", json=payload, headers=headers
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise LLMUnavailable(f"Hosted backend request failed: {exc}") from exc
 
@@ -122,6 +140,7 @@ class OllamaBackend(LLMBackend):
         self._model = settings.ollama_model
         self._timeout = settings.llm_timeout_seconds
         self._default_max_tokens = settings.llm_max_tokens
+        self._think = settings.ollama_think
 
     async def complete(
         self, *, system: str, user: str, max_tokens: int | None = None
@@ -129,6 +148,7 @@ class OllamaBackend(LLMBackend):
         payload = {
             "model": self._model,
             "stream": False,
+            "think": self._think,
             "options": {
                 "temperature": 0.2,
                 "num_predict": max_tokens or self._default_max_tokens,
@@ -139,10 +159,11 @@ class OllamaBackend(LLMBackend):
             ],
         }
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(f"{self._base_url}/api/chat", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
+            async with _get_semaphore():
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(f"{self._base_url}/api/chat", json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise LLMUnavailable(f"Ollama request failed: {exc}") from exc
 
@@ -224,3 +245,9 @@ def reset_backend_cache() -> None:
     """Tests and config reloads."""
     global _cached
     _cached = None
+
+
+def reset_concurrency_limit() -> None:
+    """Tests and config reloads (LABTUTOR_LLM_MAX_CONCURRENCY changes)."""
+    global _semaphore
+    _semaphore = None

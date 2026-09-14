@@ -24,6 +24,14 @@ class RegressionSlopeChecker(Checker):
         x_key / y_key: the raw independent and dependent series.
         transform_x / transform_y: per-point transforms from the manual
             (e.g. ``math.log`` for a first-order plot). Identity if None.
+        y_reference_key / reference_transform: for a plot that needs a
+            *scalar* reference value from the student's own data at every
+            point (e.g. ester hydrolysis's ``log(V_inf - V_t)``, where
+            ``V_inf`` is one more of the student's own readings, not a
+            manual constant). When both are given, each y point is
+            computed as ``reference_transform(raw_y, inputs[y_reference_key])``
+            instead of through ``transform_y``. Mutually exclusive with
+            ``transform_y`` in practice, though nothing enforces that.
         slope_to_value: ``slope -> reported quantity`` (e.g. ``-slope``
             for a first-order rate constant). Identity if None.
         min_r_squared: fit-quality floor from the manual.
@@ -42,12 +50,15 @@ class RegressionSlopeChecker(Checker):
         min_r_squared: float,
         transform_x: Callable[[float], float] | None = None,
         transform_y: Callable[[float], float] | None = None,
+        y_reference_key: str | None = None,
+        reference_transform: Callable[[float, float], float] | None = None,
         slope_to_value: Callable[[float], float] | None = None,
         min_points: int = 4,
         expect_direction: str | None = None,
         label: str = "",
     ) -> None:
-        super().__init__(required_inputs=(x_key, y_key), tolerance=tolerance, label=label)
+        required = (x_key, y_key) + ((y_reference_key,) if y_reference_key else ())
+        super().__init__(required_inputs=required, tolerance=tolerance, label=label)
         self.x_key = x_key
         self.y_key = y_key
         self.min_r_squared = min_r_squared
@@ -55,6 +66,8 @@ class RegressionSlopeChecker(Checker):
         self.expect_direction = expect_direction
         self._tx = transform_x
         self._ty = transform_y
+        self._y_ref_key = y_reference_key
+        self._ref_transform = reference_transform
         self._slope_to_value = slope_to_value
 
     def _raw(self, inputs: dict[str, Any]) -> tuple[list[float], list[float]]:
@@ -66,7 +79,11 @@ class RegressionSlopeChecker(Checker):
     def _transformed(self, inputs: dict[str, Any]) -> tuple[list[float], list[float]]:
         xs, ys = self._raw(inputs)
         tx = [self._tx(v) for v in xs] if self._tx else xs
-        ty = [self._ty(v) for v in ys] if self._ty else ys
+        if self._ref_transform is not None and self._y_ref_key is not None:
+            reference = float(inputs[self._y_ref_key])
+            ty = [self._ref_transform(v, reference) for v in ys]
+        else:
+            ty = [self._ty(v) for v in ys] if self._ty else ys
         return tx, ty
 
     def validate(self, inputs: dict[str, Any]) -> list[str]:

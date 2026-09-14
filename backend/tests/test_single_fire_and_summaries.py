@@ -70,6 +70,33 @@ async def test_released_claim_can_be_retried(db):
     assert again.fresh
 
 
+async def test_a_recent_in_flight_claim_still_refuses_a_second_attempt(db):
+    """Not stale yet -- must behave exactly like the pre-fix test above."""
+    claim = await idempotency.claim(db, user_id="u1", scope="submit", key="k3b")
+    assert claim.fresh
+    with pytest.raises(idempotency.DuplicateInFlight):
+        await idempotency.claim(db, user_id="u1", scope="submit", key="k3b")
+
+
+async def test_a_stale_in_flight_claim_is_reclaimed_not_refused_forever(db):
+    """Regression test: a claim whose action crashed before calling
+    complete()/release() must not wedge that (user, scope, key) forever
+    -- see STALE_IN_FLIGHT_SECONDS in backend/idempotency.py."""
+    import datetime as dt
+
+    stuck = await idempotency.claim(db, user_id="u1", scope="submit", key="k4")
+    assert stuck.fresh
+    # Simulate the crash: nothing ever called complete() or release().
+    # Backdate the claim past the staleness window instead of sleeping.
+    stuck.record.created_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        seconds=idempotency.STALE_IN_FLIGHT_SECONDS + 1
+    )
+    await db.flush()
+
+    retried = await idempotency.claim(db, user_id="u1", scope="submit", key="k4")
+    assert retried.fresh, "a stale in-flight claim must be reclaimable, not refused forever"
+
+
 async def test_claims_are_scoped_per_user_and_action(db):
     await idempotency.claim(db, user_id="u1", scope="submit", key="same")
     # A different user, and a different action, are unaffected.

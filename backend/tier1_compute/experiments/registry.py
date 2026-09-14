@@ -266,6 +266,168 @@ class QualitativeOrderingPlugin(ExperimentPlugin):
 
 
 @dataclass(frozen=True)
+class ComputationSanityPlugin(ExperimentPlugin):
+    """Experiment 7 only: job-completion/physics-consistency checks.
+
+    Unlike `QualitativeOrderingPlugin` (Experiment 8), there is no second
+    conformer to compare against -- a single ORCA run has one HOMO, one
+    LUMO, one energy before optimisation and one after. What Tier 1 can
+    still check deterministically, with no chemistry knowledge beyond two
+    universal facts, is:
+
+    * the energy after geometry optimisation must not be higher than the
+      energy the student started from (optimisation should not make
+      things worse);
+    * the LUMO energy must be higher than the HOMO energy (that is what
+      "highest occupied" / "lowest unoccupied" mean).
+
+    Neither check tells you whether the *chemistry* (method, basis set,
+    molecule) was done correctly -- that still needs a human, same as
+    Experiment 8 -- so a clean run is NOT_APPLICABLE (-> Tier 3), never a
+    PASS. A violation of either fact is a determinate, signature-backed
+    finding, because both are true regardless of manual, molecule or
+    method. See `exp07.py`.
+    """
+
+    @property
+    def kind(self) -> str:
+        return "computation_sanity"
+
+    @property
+    def is_ready(self) -> bool:
+        return True
+
+    step_specs: tuple[StepSpec, ...] = ()
+
+    def steps(self) -> tuple[StepSpec, ...]:
+        return self.step_specs
+
+    def _sanity_violations(self, inputs: dict[str, Any]) -> list[dict[str, Any]]:
+        violations: list[dict[str, Any]] = []
+        e0, e1 = inputs.get("energy_before_opt"), inputs.get("energy_after_opt")
+        if e0 is not None and e1 is not None:
+            e0f, e1f = float(e0), float(e1)
+            if e1f > e0f + 1e-6:
+                violations.append(
+                    {"rule": "energy_increased_after_optimization", "before": e0f, "after": e1f}
+                )
+        homo, lumo = inputs.get("homo_energy"), inputs.get("lumo_energy")
+        if homo is not None and lumo is not None:
+            homof, lumof = float(homo), float(lumo)
+            if lumof <= homof:
+                violations.append(
+                    {"rule": "homo_lumo_order_violated", "homo": homof, "lumo": lumof}
+                )
+        return violations
+
+    def check(self, inputs: dict[str, Any], reported: float | None) -> Tier1Result:
+        have_opt = inputs.get("energy_before_opt") is not None and inputs.get(
+            "energy_after_opt"
+        ) is not None
+        have_orbitals = inputs.get("homo_energy") is not None and inputs.get(
+            "lumo_energy"
+        ) is not None
+        if not have_opt and not have_orbitals:
+            return Tier1Result(
+                outcome=Outcome.NOT_APPLICABLE,
+                detail={
+                    "reason": "no_sanity_checkable_values_reported",
+                    "confidence": "low",
+                    "experiment_kind": self.kind,
+                },
+            )
+
+        violations = self._sanity_violations(inputs)
+        if violations:
+            from backend.tier1_compute.shared.types import SignatureHit
+
+            return Tier1Result(
+                outcome=Outcome.FAIL_WITH_SIGNATURE,
+                signature=SignatureHit(
+                    code=violations[0]["rule"],
+                    detail=(
+                        "The reported values contradict a fact that holds "
+                        "regardless of method or basis set, which points at an "
+                        "unconverged job or a mislabelled orbital."
+                    ),
+                    evidence={"violations": violations},
+                ),
+                detail={"confidence": "low", "experiment_kind": self.kind},
+            )
+
+        return Tier1Result(
+            outcome=Outcome.NOT_APPLICABLE,
+            detail={
+                "reason": "sanity_checks_passed_method_unverified",
+                "confidence": "low",
+                "experiment_kind": self.kind,
+            },
+        )
+
+    def check_step(
+        self, step_index: int, inputs: dict[str, Any], submitted: float | None
+    ) -> Tier1Result:
+        """Per-step sanity check: optimisation step, then orbital step.
+
+        Each step checks only the fact its own inputs can speak to, so a
+        student gets a signal after each stage rather than only at the
+        end. Neither step is ever a PASS -- see the class docstring.
+        """
+        step = step_index
+        if step == 0:
+            e0, e1 = inputs.get("energy_before_opt"), inputs.get("energy_after_opt")
+            if e0 is None or e1 is None:
+                return Tier1Result(
+                    outcome=Outcome.INVALID,
+                    errors=["Missing 'energy_before_opt' and/or 'energy_after_opt'"],
+                )
+        else:
+            homo, lumo = inputs.get("homo_energy"), inputs.get("lumo_energy")
+            if homo is None or lumo is None:
+                return Tier1Result(
+                    outcome=Outcome.INVALID,
+                    errors=["Missing 'homo_energy' and/or 'lumo_energy'"],
+                )
+
+        violations = self._sanity_violations(inputs)
+        relevant = [
+            v
+            for v in violations
+            if (step == 0 and v["rule"] == "energy_increased_after_optimization")
+            or (step != 0 and v["rule"] == "homo_lumo_order_violated")
+        ]
+        if relevant:
+            from backend.tier1_compute.shared.types import SignatureHit
+
+            return Tier1Result(
+                outcome=Outcome.FAIL_WITH_SIGNATURE,
+                signature=SignatureHit(
+                    code=relevant[0]["rule"],
+                    detail="This step's reported values contradict a fact that "
+                    "holds regardless of method or basis set.",
+                    evidence={"violations": relevant},
+                ),
+                detail={"confidence": "low", "experiment_kind": self.kind},
+            )
+        # This step's own fact holds. Still never a PASS -- see the class
+        # docstring -- so, exactly like Experiment 8's ordering check, the
+        # Socratic step machine cannot auto-advance past this step via
+        # `/attempt`: `handle_attempt` only advances on Outcome.PASS, and
+        # nothing here can honestly claim that. This is a known, shared
+        # limitation of both method-choice experiments, not something
+        # papered over with a fake PASS or a misleading INVALID -- see
+        # docs/final_audit.md.
+        return Tier1Result(
+            outcome=Outcome.NOT_APPLICABLE,
+            detail={
+                "reason": "sanity_check_passed_no_auto_advance_for_method_choice",
+                "confidence": "low",
+                "experiment_kind": self.kind,
+            },
+        )
+
+
+@dataclass(frozen=True)
 class PendingManualPlugin(ExperimentPlugin):
     """A registered experiment whose manual data has not been transcribed."""
 

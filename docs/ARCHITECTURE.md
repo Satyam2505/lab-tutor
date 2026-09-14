@@ -18,12 +18,23 @@ or be treated as a bug.
 > guesses this document and the per-experiment plugins made before the
 > manual arrived were wrong in one confirmed place (Experiment 7 vs 8 —
 > see §2.1.1) and unverified everywhere else. `docs/final_audit.md` has
-> the full experiment-by-experiment status. Only Experiment 1 has a
-> Tier 1 plugin backed by a manual-verified worked example so far;
-> Experiments 2–6, 9, 10 still raise `PendingManualPlugin` reasons that
-> now cite formula gaps rather than "manual absent" (see
-> `manual/IACHY102_manual.md`'s per-experiment sections for what those
-> gaps are, before writing any of them).
+> the full experiment-by-experiment status.
+>
+> **Update (2026-09-14).** `backend/rag/retrieval.py` previously pointed
+> at a nonexistent `manual/BACHY105.pdf` and could not have parsed the
+> markdown transcription anyway (`pypdf` on non-PDF text) — retrieval
+> returned zero passages under every reachable configuration, verified
+> live. Both are fixed: `build_index` now dispatches on file extension
+> and chunks the markdown by its `## Experiment N ... (p.X-Y)` headings,
+> and the default `LABTUTOR_MANUAL_PDF` points at the transcription.
+> Retrieval is real again (19 passages, verified live) and citations now
+> read "IACHY102 manual, p. ..." rather than the old BACHY105 string.
+> Real Tier 1 plugins now exist for Experiments 1, 2, 3, 7 and 8
+> (Experiment 7 via a new `ComputationSanityPlugin` — see §2.1.1);
+> Experiments 4, 5, 6, 9, 10 still raise `PendingManualPlugin`. See
+> `docs/final_audit.md` for the full status and for tolerance/fit-quality
+> values in Exp 2/3 that are deliberate engineering defaults, not
+> manual-derived numbers.
 
 ## 1. Pipeline overview
 
@@ -211,11 +222,29 @@ check:
   energy per run (CH4 and O2, six method/basis-set combinations each).
   It has no ordering to check — a single run has one HOMO and one LUMO,
   not two conformers to compare — so `QualitativeOrderingPlugin` does not
-  fit it. It is registered as `PendingManualPlugin` until a fifth shared
-  checker type (job-completion / HOMO<LUMO / energy-decreased-after-
-  optimization "computation sanity" checker) is designed and built.
-  `backend/rag/qualitative.py`'s exception is narrowed to `{exp08}`
-  accordingly.
+  fit it. `backend/rag/qualitative.py`'s model-note exception is narrowed
+  to `{exp08}` accordingly (Exp 7 has no narrative-note mechanism at all).
+
+**Update (2026-09-14): the fifth checker type now exists.** Exp 7 is
+implemented via `registry.ComputationSanityPlugin` — it checks two facts
+that hold regardless of molecule, method or basis set (energy must not
+increase after optimisation; LUMO must be higher than HOMO), and never
+returns PASS, escalating to Tier 3 on a clean run exactly as Exp 8 does,
+because the method/basis-set choice itself still needs a human eye.
+**Known shared limitation, Exp 7 and Exp 8 both:** because neither
+plugin's `check_step` can honestly return PASS, and `handle_attempt`
+(Socratic's `/attempt` endpoint) only advances the step index on PASS,
+a student can open a session for either experiment and chat about it,
+but cannot step-by-step "complete" it through `/attempt` — that always
+returns a hint, never advances, never sets `all_steps_complete`. The
+diagnostic submission path (`plugin.check(...)`, used by
+`POST /api/submissions`) and the free-text Socratic chat path
+(`tutor_reply`, which never calls `check_step`) both work as intended for
+both experiments; only step-by-step numeric advancement does not. This
+was discovered, not designed — see `docs/final_audit.md` — and fixing it
+properly (giving the Socratic step machine a third outcome between
+"advance" and "hint forever") is future work, not something patched
+around here with a fake PASS.
 
 See `manual/IACHY102_manual.md` and `docs/final_audit.md` for the full
 per-experiment mapping against the real manual.

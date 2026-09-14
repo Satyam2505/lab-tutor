@@ -88,10 +88,10 @@ async def test_invalid_input_never_reaches_tier_2_or_3(fake_llm, plugin):
 
 
 async def test_unconfigured_experiment_escalates_rather_than_guessing(fake_llm):
-    # exp02 is still a PendingManualPlugin (formula known, no worked
-    # example to verify against yet) -- exp01 is now a real plugin.
+    # exp04 is still a PendingManualPlugin. exp01/02/03/07/08 are now real
+    # plugins.
     outcome = await run_diagnosis(
-        get_plugin("exp02"), inputs={"anything": 1}, reported_value=1.0
+        get_plugin("exp04"), inputs={"anything": 1}, reported_value=1.0
     )
     assert outcome.status is DiagnosisStatus.ESCALATED
     assert outcome.tier == 3
@@ -187,16 +187,46 @@ def test_qualitative_plugins_have_no_numeric_steps():
     assert result.outcome.value == "not_applicable"
 
 
-def test_exp07_is_pending_manual_not_a_qualitative_plugin():
+def test_exp07_is_a_computation_sanity_plugin_not_an_ordering_check():
     """Exp7 is the orbital-contribution workflow, not an ordering check --
-    see backend/tier1_compute/experiments/exp07.py. It must raise rather
-    than silently reuse exp08's ordering logic."""
-    from backend.tier1_compute.experiments.registry import ManualNotTranscribedError
-
+    see backend/tier1_compute/experiments/exp07.py. Its own shape (one
+    HOMO, one LUMO, one before/after optimisation energy) is checked
+    deterministically without reusing exp08's conformer-ordering logic."""
     plugin = get_plugin("exp07")
-    assert plugin.kind == "pending_manual"
-    with pytest.raises(ManualNotTranscribedError):
-        plugin.check({}, None)
+    assert plugin.kind == "computation_sanity"
+
+    clean = plugin.check(
+        {
+            "energy_before_opt": -40.5,
+            "energy_after_opt": -40.9,
+            "homo_energy": -10.2,
+            "lumo_energy": 0.3,
+        },
+        None,
+    )
+    assert clean.outcome.value == "not_applicable"  # never a PASS -- method still unverified
+
+    violated = plugin.check(
+        {
+            "energy_before_opt": -40.5,
+            "energy_after_opt": -40.1,  # went UP after "optimisation"
+            "homo_energy": -10.2,
+            "lumo_energy": 0.3,
+        },
+        None,
+    )
+    assert violated.signature_code == "energy_increased_after_optimization"
+
+    swapped = plugin.check(
+        {
+            "energy_before_opt": -40.5,
+            "energy_after_opt": -40.9,
+            "homo_energy": 0.3,  # HOMO/LUMO swapped
+            "lumo_energy": -10.2,
+        },
+        None,
+    )
+    assert swapped.signature_code == "homo_lumo_order_violated"
 
 
 def test_only_one_experiment_is_qualitative():

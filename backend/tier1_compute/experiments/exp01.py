@@ -118,6 +118,12 @@ register(
         manual_reference="IACHY102 manual, p.10-15",
         checker=DELTA_G_CHECKER,
         step_specs=STEPS,
-        step_checkers={0: ECELL_CHECKER},
+        # Both steps need a checker: `handle_attempt` calls `check_step`
+        # for whichever step is current, including the final one. Missing
+        # step 1 here (found during this session's evaluation-pipeline
+        # audit) meant a student could open a session but never actually
+        # pass the final step through `/attempt` -- see
+        # docs/final_audit.md.
+        step_checkers={0: ECELL_CHECKER, 1: DELTA_G_CHECKER},
     )
 )

@@ -1,0 +1,6 @@
+experiment,cases_in_dataset,cases_evaluated,intent_accuracy,recall_at_1,citation_correct,relevance
+exp01,3,3,1.0,1.0,1.0,1.0
+exp02,3,3,1.0,0.0,0.0,0.667
+exp03,3,3,1.0,0.0,0.0,1.0
+exp07,4,4,1.0,1.0,1.0,1.0
+exp08,3,3,1.0,1.0,1.0,0.667

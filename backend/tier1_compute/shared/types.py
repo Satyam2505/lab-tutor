@@ -146,11 +146,16 @@ _SIGNATURE_ACTIONS: dict[str, Action] = {
     "no_detectable_endpoint": Action.RESTART,
     "flat_response": Action.RESTART,
     "standards_not_bracketing": Action.RESTART,
-    # Experiments 7/8 only. Even a clear-cut ordering contradiction routes
-    # to human review rather than a direct instruction, because these
-    # experiments assess method choice and the check is explicitly
+    # Experiment 8 only. Even a clear-cut ordering contradiction routes to
+    # human review rather than a direct instruction, because this
+    # experiment assesses method choice and the check is explicitly
     # low-confidence (see registry.QualitativeOrderingPlugin).
     "conformer_ordering_violated": Action.AWAIT_REVIEW,
+    # Experiment 7 only (registry.ComputationSanityPlugin). Same rationale
+    # as above: these facts hold regardless of method, but the method
+    # itself still needs a human eye.
+    "energy_increased_after_optimization": Action.AWAIT_REVIEW,
+    "homo_lumo_order_violated": Action.AWAIT_REVIEW,
 }
 
 

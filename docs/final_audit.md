@@ -1,10 +1,10 @@
 # Final audit — LabTutor vs the Phase 2 build/audit/hardening request
 
-Date: 2026-09-12. Scope note up front, because it governs every verdict
-below: **the Phase 2 request describes a different, much larger product
-than what exists in this repository**, and this audit says so rather
-than inventing evidence to close the gap. See "Architecture mismatch"
-before reading the checklist.
+Date: 2026-09-12, updated 2026-09-14 (§7). Scope note up front, because
+it governs every verdict below: **the Phase 2 request describes a
+different, much larger product than what exists in this repository**,
+and this audit says so rather than inventing evidence to close the gap.
+See "Architecture mismatch" before reading the checklist.
 
 ## 0. Architecture mismatch (read this first)
 
@@ -170,22 +170,24 @@ than a batch of six rushed tolerance guesses.
 
 ## 4. Per-experiment status (the table the request's §29 asks for)
 
-Routing/retrieval/citation/scope columns are marked N/A throughout
-because that whole layer does not exist in this codebase (see §2 row 2)
-— not because it was tested and scored zero.
+Updated 2026-09-14 (see §7): retrieval now works, so the "Retrieval"
+column below is no longer blanket N/A. Routing/scope classification and
+citation *validation* still don't exist as subsystems (see §2 row 2).
+Session-start (`POST /api/socratic/session`) works only for experiments
+with a Tier 1 checker below (steps configured); the rest still 503.
 
-| # | Title | Tier 1 checker | Worked example | Golden cases | Routing/Retrieval/Citation/Scope |
-|---|---|---|---|---|---|
-| 1 | Zn-Cu EMF thermodynamics | **Implemented** (Ecell + ΔG) | Yes, p.13, verified | 1 (Category 1) | N/A — no RAG/scope layer exists |
-| 2 | Ester hydrolysis kinetics | Pending (regression_slope shape known) | No | 0 | N/A |
-| 3 | Ni2+ colorimetry | Pending (calibration_curve shape known) | No | 0 | N/A |
-| 4 | Fe potentiometry | Pending (endpoint_detection shape known) | No | 0 | N/A |
-| 5 | ZnO prep/characterization | Pending (Scherrer eq. known, no sample data) | No | 0 | N/A |
-| 6 | Sulfate conductometry | Pending (endpoint_detection shape known) | No | 0 | N/A |
-| 7 | Orbital contributions (Gabedit/ORCA/Avogadro) | **Pending — needs new checker type** | No | 0 | N/A |
-| 8 | Ethane + cyclohexane conformers | **Implemented** (QualitativeOrderingPlugin, corrected this session) | N/A (ordering-only check by design) | pre-existing category 2/5 cases (generic, not manual-numeric) | N/A |
-| 9 | Fe2+ colorimetry | Pending (calibration_curve shape known) | No | 0 | N/A |
-| 10 | Cu2O nanoparticle colour | Pending (calibration_curve shape known) | No | 0 | N/A |
+| # | Title | Tier 1 checker | Session-start | Worked example | Golden cases | Retrieval |
+|---|---|---|---|---|---|---|
+| 1 | Zn-Cu EMF thermodynamics | **Implemented** (Ecell + ΔG; final-step checker bug found+fixed this session) | Works | Yes, p.13, verified | 1 (Category 1) | Real (19-passage index) |
+| 2 | Ester hydrolysis kinetics | **Implemented** (regression_slope; tolerance/fit DEFAULTS, not manual-stated) | Works | No | 0 | Real |
+| 3 | Ni2+ colorimetry (conventional only) | **Implemented** (calibration_curve; tolerance/fit DEFAULTS, not manual-stated) | Works | No | 0 | Real |
+| 4 | Fe potentiometry | Pending (endpoint_detection shape known) | 503 | No | 0 | Real (index has content; nothing calls it) |
+| 5 | ZnO prep/characterization | Pending (Scherrer eq. known, no sample data) | 503 | No | 0 | Real |
+| 6 | Sulfate conductometry | Pending (endpoint_detection shape known) | 503 | No | 0 | Real |
+| 7 | Orbital contributions (Gabedit/ORCA/Avogadro) | **Implemented** (new `ComputationSanityPlugin`) | Works (chat/diagnostic; `/attempt` step-advance doesn't — see ARCHITECTURE.md §2.1.1) | No | 0 | Real |
+| 8 | Ethane + cyclohexane conformers | **Implemented** (`QualitativeOrderingPlugin`, corrected 2026-09-12) | Works (same `/attempt` limitation as Exp 7) | N/A (ordering-only check by design) | pre-existing category 2/5 cases (generic, not manual-numeric) | Real |
+| 9 | Fe2+ colorimetry | Pending (calibration_curve shape known) | 503 | No | 0 | Real |
+| 10 | Cu2O nanoparticle colour | Pending (calibration_curve shape known) | 503 | No | 0 | Real |
 
 ## 5. Final acceptance gate (request §33, honestly filled in)
 
@@ -213,3 +215,286 @@ biggest latent correctness bug (Experiment 7/8 identity) is fixed, and
 every other gap is named specifically enough that the next session can
 pick any one item in §2 and build it for real, rather than being told
 "mostly done" and discovering otherwise later.
+
+## 7. Session 2 (2026-09-14): fixing the two blockers found while
+scoping the Qwen+RAGAS evaluation pipeline
+
+A separate request asked for a Qwen3:8B (Ollama) + RAGAS evaluation
+pipeline against Experiments 2, 3, 7, 8 (priority) and the rest. Before
+building it, tracing an actual question ("exp7 me orca wala kaise
+krna") through the real code (not simulated) surfaced two blockers, and
+the user chose to fix both before any evaluation work:
+
+**Blocker 1 — retrieval returned zero passages under every reachable
+config.** `manual_pdf` defaulted to `manual/BACHY105.pdf` (doesn't
+exist); pointing it at `manual/IACHY102_manual.md` instead failed too,
+since `pypdf` can't parse markdown. Verified live both ways before
+touching anything. Fixed: `backend/rag/retrieval.py::build_index` now
+dispatches on file extension; a new `_chunk_markdown` splits the
+transcription on its `## Experiment N ... (p.X-Y)` headings and tags
+each chunk with the parsed page/page-range. `Passage.citation()` updated
+to say "IACHY102 manual" instead of the old "BACHY105 manual" string.
+Config default and `.env.example` updated. Re-verified live: 19 passages
+indexed; an Exp7-flavoured Hinglish query ("orca run krdia ab avogadro
+homo lumo") correctly top-ranks the Experiment 7 section; an ester-
+hydrolysis query correctly top-ranks Experiment 2. New test file:
+`backend/tests/test_retrieval.py` (none existed before — this subsystem
+had zero test coverage until now).
+
+**Blocker 2 — 8 of 10 experiments 503'd at Socratic session-start**,
+before reaching any retrieval, LLM, or Q&A code, because
+`POST /api/socratic/session` calls `steps_for(plugin)` immediately and
+every non-implemented experiment is a `PendingManualPlugin` that raises.
+The user asked specifically to unblock Experiments 7, 2 and 3 (the three
+priority experiments that were still pending; Exp 8 already worked).
+Fixed, all three, all manual-grounded, all with the full test suite
+green after each:
+
+- **Experiment 2** (ester hydrolysis rate constant): `RegressionSlopeChecker`,
+  transcribed formula `k1' = slope * 2.303` from a plot of
+  `log10(V_inf - Vt)` vs `t` (p.18). Required a real enhancement to the
+  shared checker — `y_reference_key`/`reference_transform`, since the
+  per-point transform needs the student's own `V_inf` reading, not a
+  manual constant — added to `regression_slope.py` generically, not
+  special-cased. **Tolerance (`rel_tol=0.05`) and fit floor
+  (`min_r_squared=0.98`) are deliberate engineering defaults, not
+  manual-derived** — the manual states no experiment-specific band for
+  this experiment (see `manual/IACHY102_manual.md`'s summary table) and
+  the module docstring says so explicitly, same for the sign convention
+  applied to the slope (the manual's printed formula has no minus sign;
+  standard kinetics convention does).
+- **Experiment 3** (Ni2+ colorimetry, conventional method only):
+  `CalibrationCurveChecker` against the manual's 2/4/6/8 ppm standards at
+  440 nm (p.22). Same caveat: tolerance and fit floor are defaults, not
+  manual-stated. The smartphone/RGB-ratio variant is explicitly **not**
+  implemented (different, still-undecided input shape — which RGB ratio
+  is "the" calibration axis varies per run).
+- **Experiment 7** (orbital contributions): needed the "fifth checker
+  type" flagged as missing in the first audit session. Built
+  `registry.ComputationSanityPlugin` — checks two facts that hold for
+  any molecule/method/basis set (energy must not rise after
+  optimisation; LUMO must exceed HOMO), never returns PASS (method
+  choice still needs a human, same rationale as Exp 8's ordering check).
+
+**Bugs found and fixed along the way, not part of the original ask:**
+
+- **Experiment 1's final Socratic step had no checker at all** —
+  `step_checkers={0: ECELL_CHECKER}` was missing an entry for step 1
+  (the final ΔG step). Since `handle_attempt` calls `check_step` for
+  whichever step is current, including the final one, a student could
+  open an Exp 1 session and get through step 0, but attempting the
+  final step would raise `ManualNotTranscribedError` → HTTP 503. Fixed:
+  `step_checkers={0: ECELL_CHECKER, 1: DELTA_G_CHECKER}`.
+- **Experiments 7 and 8 cannot be "completed" via `/attempt` at all**,
+  discovered while building Exp 7's checker and confirmed to also be
+  true of the pre-existing Exp 8: because neither plugin's `check_step`
+  can honestly return PASS (that's the entire point of a method-choice
+  check), and `handle_attempt` only advances the step index on PASS, a
+  session opens and the chat/diagnostic paths work, but step-by-step
+  numeric advancement through `/attempt` never completes for either
+  experiment. This is a real, structural gap in
+  `QualitativeOrderingPlugin`/`ComputationSanityPlugin`'s design (the
+  Socratic step machine has no outcome between "advance" and "hint
+  forever"), not something patched around here with a fake PASS. Left
+  open, documented in `docs/ARCHITECTURE.md` §2.1.1 and in code
+  comments, flagged as future work.
+- **`test_answer_never_enters_the_prompt` in `test_socratic_refusal.py`
+  started failing** the moment real retrieval went live, because its
+  synthetic `reference_plugin`'s step prompt happened to lexically match
+  a real Experiment 10 manual passage containing the digit "4", which
+  collided with one of the test's own unrelated fixture constants. Not a
+  gate bug — the manual excerpt is *supposed* to be able to contain
+  numbers; the test's assertion was written when retrieval was
+  guaranteed empty and became too strong once it wasn't. Fixed by
+  monkeypatching retrieval out for that module specifically (it tests
+  the answer-gate's structural guarantee against a synthetic plugin, not
+  real manual grounding — `test_retrieval.py` now covers the latter).
+
+**Verification, not claims:** full backend test suite run after every
+change in this section; **674 passed, 1 pre-existing skip, 0 failed** at
+the end. Session-start (`steps_for`/`present_step`) re-checked live for
+all 10 experiments after the fixes: exp01/02/03/07/08 succeed,
+exp04/05/06/09/10 still correctly 503 (untouched, out of scope for this
+pass). Retrieval re-checked live against the real index, not asserted.
+
+**Still not done, and why:** Experiments 4, 5, 6, 9, 10 remain
+`PendingManualPlugin` — untouched in this pass, the user's request was
+scoped to 7/2/3 specifically. The Qwen3:8B + RAGAS evaluation pipeline
+itself has not been built or run yet as of this update; that is the
+next piece of work, now on top of a real (if partial) retrieval and
+Tier 1 surface instead of one that would have produced only empty
+citations and 503s for most of the priority experiments.
+
+## 8. Session 3 (2026-09-14, later): a live 16-case evaluation run, and
+what it found
+
+The evaluation harness described as "not yet built" in §7 above was
+built (`evaluation/run_evaluation.py`, `evaluation/build_reports.py`)
+and actually run: 16 real cases across Exp1/2/3/7/8, through the real
+`chat.tutor_reply` code, local `qwen3:8b` (Ollama) as both generator and
+judge (flagged non-independent throughout every report). 16/16 executed,
+0 failed. RAGAS was attempted (two versions) and is genuinely blocked by
+an upstream `ragas`/`langchain_community` packaging incompatibility
+(`langchain_community.chat_models.vertexai` no longer exists in the
+installed version) — documented with the real traceback in
+`reports/ragas_results.json` rather than faked. One fix attempt
+(downgrading `langchain-community`) briefly broke numpy/langgraph
+version constraints for other tools in this shared Python environment;
+caught immediately and reverted (`pip install -U` back to the working
+set), repo tests re-confirmed green before continuing.
+
+**Two real, measured issues the run surfaced, both since fixed:**
+
+1. **Retrieval Recall@1 was 0.0 for Exp2 and Exp3** (1.0 for Exp1/7/8).
+   Root cause: a short front-matter table listing all 10 experiment
+   titles in one compact chunk out-ranked each experiment's own real
+   section on BM25's length normalisation (shorter documents score
+   higher for the same term overlap). Recall@3 was 1.0 -- the real
+   section was always second -- so generated content was usually still
+   relevant, but the *cited* page was wrong 100% of the time for these
+   two experiments. **Fixed**: `backend/rag/retrieval.py`'s
+   `_chunk_markdown` now only indexes sections headed "Experiment N ..."
+   (`_EXPERIMENT_HEADING_RE`); front-matter/summary tables are excluded
+   from retrieval entirely. Re-verified live: Exp2/Exp3 queries now
+   correctly top-rank their own section.
+2. **12 of 16 replies silently fell back to the fixed hint template**
+   instead of a real LLM reply, because `qwen3:8b`'s default "thinking"
+   mode spent the whole `num_predict` budget on internal reasoning
+   before any visible content, and `chat.py` already treats empty LLM
+   output as unavailable (falls back to template) -- a safe degradation,
+   but it meant most of the run measured template text, not generated
+   prose. **Fixed**: added a `think` toggle to `OllamaBackend`
+   (`LABTUTOR_OLLAMA_THINK`, default `false`) --
+   `backend/llm/client.py` + `backend/config.py`, with
+   `backend/tests/test_llm_ollama_backend.py` pinning both the default
+   and the opt-in. Verified live via direct Ollama call: `think: false`
+   dropped a trivial-prompt round trip from ~22s to ~5s.
+
+Both fixes verified against the full test suite (green after each) and
+against a live retrieval/API call, not just unit-tested in isolation.
+
+## 9. Session 3 continued: Experiment-7-focused deep dataset, per
+`/goal` (2026-09-14)
+
+A `/goal` set a session-scoped directive: test Experiment 7 specifically,
+improve the pipeline toward "excellent, prod level," check whether
+manual images were handled, and flag any other robustness gaps.
+
+- **Images: not handled, and cannot be from what exists in this repo.**
+  See `docs/exp07_image_gap.md` for the full account. Short version: the
+  manual reached this repo as chat-rendered pages, transcribed to text
+  only; the image bytes were never saved anywhere (verified: no image
+  file exists in the repo or session scratch directories for this
+  document), and there is no mechanism available to retroactively
+  extract them from a past chat turn. Fixing this needs either the real
+  PDF (enabling a new page-image extraction path alongside the existing
+  text one) or manually captured screenshots -- both are new inputs from
+  outside this session, not a pipeline bug to engineer around.
+- **Expanded Exp7 golden dataset**: `evaluation/exp07_dataset.json`, 34
+  cases (30 executed, 4 explicitly marked `blocked_no_image_asset` and
+  skipped rather than faked) covering procedure, molecule-build
+  (CH4/O2), workflow transitions, concepts (HOMO/LUMO, basis sets),
+  troubleshooting, Hinglish/typos, a stateless-chat "false memory" probe
+  (see below), cross-experiment confusion, prompt injection, answer
+  fishing, off-scope and safety. Still far short of the original
+  150-200 target, but a real, deliberate expansion of the 4-case Exp7
+  slice from the first run.
+- **Real architecture finding: Socratic chat has no conversation memory
+  at all.** `chat._build_user_prompt` sends only the current message,
+  the step prompt, the current hint, and a manual excerpt -- no prior
+  turns. A "multi-turn" test in the sense of context-aware follow-ups is
+  therefore not meaningfully different from a single-turn one in this
+  system; what *is* meaningfully testable is whether a message that
+  presupposes false prior context ("what did you say earlier about...")
+  gets a sensible reply without the model inventing a fake memory --
+  that is what the `false_memory_probe` cases test.
+- **Robustness sweep** (Explore agent, read-only, targeted at the two
+  bug families already found plus concurrency/idempotency/config-cache
+  risk): found 4 more real, code-verified issues, all fixed this
+  session --
+  1. `_chunk_markdown` splitting a long section dropped the experiment
+     heading from every chunk after the first, so a mid-section chunk
+     (e.g. Exp1's worked example) competed at retrieval with no
+     identifying terms of its own. **Fixed**: `_chunk_page` gained a
+     `prefix` param, applied to every chunk. Verified live: the agent's
+     own repro query ("Experiment 1 Nernst equation worked example")
+     now top-ranks Exp1's own chunk (score 4.27) instead of Exp5's
+     (was beating or nearly tying it before).
+  2. `idempotency.claim()` had no expiry on `in_flight` records and
+     `release()` is only called from a few routes' explicit error
+     branches (`grep -rn "finally" backend/api` — zero hits repo-wide),
+     so a mid-request crash wedged that exact `(user, scope, key)`
+     forever. **Fixed**: `STALE_IN_FLIGHT_SECONDS` (300s) — a claim
+     older than that is reclaimed rather than refused indefinitely;
+     tests added, including a regression test for the crash scenario.
+  3. `reload_settings()` only cleared the settings cache itself, not
+     `rag.retrieval`'s index cache or `llm.client`'s backend cache —
+     each needed its own separately-named reset call, a real footgun
+     for exactly the kind of env-var-mutating script this session
+     wrote. **Fixed**: `reload_settings()` now cascades to both (the DB
+     engine's cache is deliberately left alone — disposing it is async
+     and cannot run from this sync function).
+  4. No bounded concurrency anywhere on the interactive LLM call path
+     (chat, phrasing, the Exp8 note) — unlike `summaries/jobs.py`'s
+     batch fan-out, which already has a semaphore for the same reason.
+     At ~70 concurrent students against a slow/degrading provider,
+     up to ~70 simultaneous requests could be in flight at once.
+     **Fixed**: `LABTUTOR_LLM_MAX_CONCURRENCY` (default 20), enforced
+     via a lazily-built `asyncio.Semaphore` around the actual HTTP call
+     in both `HostedBackend` and `OllamaBackend`. Test proves the cap
+     holds under real concurrent load (10 calls, cap 3, measured peak
+     concurrency = 3).
+  Checked and found fine: `socratic_engine/chat.py`/`engine.py` (no
+  cross-session mutable state), `ratelimit.py` (correctly locked,
+  reasonable limits for 70 users; only a trivial unbounded-dict nitpick,
+  not fixed).
+- **Prompt-quality finding from the first full Exp7 run (30 cases, real
+  LLM replies)**: 28/30 were relevant/grounded; the 2 misses
+  (`e07-14` "what's the actual difference between HOMO and LUMO
+  conceptually", `e07-15` "whats the diff between B3LYP and B3P
+  basically") both got the generic hint-refusal placeholder instead of
+  an actual explanation, even though retrieval had correctly found the
+  right manual section (recall@1 was 1.0 throughout). Root cause: the
+  Socratic chat `SYSTEM_PROMPT` only knew one mode -- "re-word the
+  supplied hint" -- so a genuine conceptual question got squeezed into
+  that frame and answered with whatever placeholder hint text existed
+  (`templates.refusal_text()` on a first message, since no real hint
+  has been computed yet). **Fixed**: `SYSTEM_PROMPT` now names two
+  message kinds -- hint requests (unchanged behaviour) and genuine
+  procedure/concept questions (now answered directly from the MANUAL
+  EXTRACT, up to 3 sentences) -- with the same numeric-safety rules
+  applying to both. The "never reveal the final computed answer" and
+  "never introduce a number not already in hint/step/manual/student
+  text" constraints are unchanged and are enforced structurally either
+  way (`answer_gate.scrub_outbound`), so this loosens what the model is
+  *allowed to try to say*, not what it's allowed to leak.
+
+**Final measured results, Exp7, 30/30 executed (4 correctly blocked, 0
+failed) — after both fixes above:**
+
+| Metric | Before (first run) | After |
+|---|---|---|
+| Retrieval Recall@1 | 1.0 | 1.0 |
+| Retrieval Recall@3 | 1.0 | 1.0 |
+| Citation correctness | 1.0 | 1.0 |
+| Intent classification accuracy | 1.0 | 1.0 |
+| Qwen-judged relevance | 0.933 (28/30) | **1.0 (30/30)** |
+| Qwen-judged grounded-in-context | 0.933 | **1.0** |
+| Qwen-judged scope-handling-correct | 0.933 | **1.0** |
+| Hallucination rate | 0.0 | 0.0 |
+| Final-answer-leak rate | 0.0 | 0.0 |
+| Answer-gate redactions | 0 | 1 (see below) |
+| Reply source | 27/30 real LLM, 3/30 triage short-circuit | same |
+| Avg generation latency | 4.67s | 8.25s (longer, more substantive replies) |
+
+The one redaction in the "after" run is the gate working as designed,
+not a defect: asked how to build methane, the model volunteered the
+tetrahedral bond angle ("close to 109.5 degrees") — a real, harmless
+fact, but not a number present in the hint/step/manual excerpt/student
+message, so `scrub_outbound` withheld it. Conservative, and consistent
+with this system's documented safety-first design.
+
+Judge independence caveat applies throughout (same `qwen3:8b` model
+generates and judges) — see `reports/exp07_evaluation_report.md`.
+Still not attempted: the 150-200-case target volume, and anything
+requiring the manual's images (`docs/exp07_image_gap.md`).

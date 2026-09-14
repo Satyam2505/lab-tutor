@@ -71,12 +71,33 @@ class Settings(BaseSettings):
     llm_model: str = Field("", alias="LABTUTOR_LLM_MODEL")
     llm_timeout_seconds: float = Field(30.0, alias="LABTUTOR_LLM_TIMEOUT_SECONDS")
     llm_max_tokens: int = Field(400, alias="LABTUTOR_LLM_MAX_TOKENS")
+    #: Caps how many LLM calls run at once, across every caller
+    #: (Socratic chat, diagnostic phrasing, the Exp8 qualitative note).
+    #: Found missing this session: nothing previously bounded this, so
+    #: ~70 concurrent students each hitting a slow/degrading provider
+    #: could put ~70 simultaneous requests in flight, each independently
+    #: waiting out the full timeout -- compare `summaries/jobs.py`,
+    #: which already bounds its own batch fan-out with a semaphore for
+    #: the same reason.
+    llm_max_concurrency: int = Field(20, alias="LABTUTOR_LLM_MAX_CONCURRENCY")
     ollama_base_url: str = Field("http://localhost:11434", alias="LABTUTOR_OLLAMA_BASE_URL")
     ollama_model: str = Field("llama3.1:8b", alias="LABTUTOR_OLLAMA_MODEL")
+    #: Some local models (e.g. qwen3) default to an internal "thinking"
+    #: pass before the visible reply. Measured during this session's
+    #: evaluation run: with `llm_max_tokens` at its default (400) that
+    #: reasoning pass alone can consume the whole budget, leaving zero
+    #: tokens for the actual reply -- chat.py then silently falls back to
+    #: the fixed hint template (empty LLM text is treated as unavailable).
+    #: Default off for reliability; a deployment that wants the model's
+    #: reasoning (and raises llm_max_tokens accordingly) can opt in.
+    ollama_think: bool = Field(False, alias="LABTUTOR_OLLAMA_THINK")
     llm_auto_fallback: bool = Field(True, alias="LABTUTOR_LLM_AUTO_FALLBACK")
 
     # --- retrieval ---
-    manual_pdf: str = Field("manual/BACHY105.pdf", alias="LABTUTOR_MANUAL_PDF")
+    # Points at the markdown transcription (manual/IACHY102_manual.md), not
+    # a PDF binary -- see manual/README.md. `build_index` in
+    # backend/rag/retrieval.py dispatches on the file extension.
+    manual_pdf: str = Field("manual/IACHY102_manual.md", alias="LABTUTOR_MANUAL_PDF")
 
     # --- rate limits ---
     ratelimit_socratic_per_minute: int = Field(12, alias="LABTUTOR_RATELIMIT_SOCRATIC_PER_MINUTE")
@@ -110,6 +131,36 @@ def get_settings() -> Settings:
 
 
 def reload_settings() -> Settings:
-    """Clear the cache. Tests use this after mutating the environment."""
+    """Clear the settings cache and every settings-derived cache that does
+    not automatically follow it.
+
+    Found during this session's evaluation-script work: `rag.retrieval`'s
+    manual index and `llm.client`'s backend instance each cache
+    themselves behind their own module-level global, populated from
+    `get_settings()` at first use and invalidated only by their own
+    separately-named reset function (`reset_index_cache`,
+    `reset_backend_cache`). A caller who changes `LABTUTOR_MANUAL_PDF` or
+    `LABTUTOR_LLM_BACKEND` and calls only `reload_settings()` -- the
+    obviously-named thing to call -- would silently keep serving the
+    stale index/backend built under the old settings. This script
+    happened not to hit that (it set env vars before either subsystem
+    had been touched), but it is a real footgun for the next caller.
+    `db.get_engine`'s cache is deliberately NOT cascaded here: disposing
+    it is async (`db.dispose_engine`) and cannot run from this sync
+    function without an event loop; callers that change
+    `LABTUTOR_DATABASE_URL` at runtime must still call that themselves
+    (as `backend/tests/conftest.py`'s `db` fixture already does).
+    """
     get_settings.cache_clear()
-    return get_settings()
+    settings = get_settings()
+
+    from backend.rag.retrieval import reset_index_cache
+
+    reset_index_cache()
+
+    from backend.llm.client import reset_backend_cache, reset_concurrency_limit
+
+    reset_backend_cache()
+    reset_concurrency_limit()
+
+    return settings
