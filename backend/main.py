@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     if ready < total:
         log.warning(
             "%d experiment(s) are not usable yet -- their formulas have not been "
-            "transcribed from the BACHY105 manual. Submissions against them will "
+            "transcribed from the IACHY102 manual. Submissions against them will "
             "escalate to review rather than produce a diagnosis.",
             total - ready,
         )
@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="LabTutor",
         description=(
-            "Chemistry lab learning support for BACHY105. Diagnosis is "
+            "Chemistry lab learning support for IACHY102. Diagnosis is "
             "deterministic; language models only phrase what has already been "
             "decided."
         ),

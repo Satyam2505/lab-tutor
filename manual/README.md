@@ -1,24 +1,51 @@
 # manual/
 
-**Updated 2026-09-12.** The manual arrived as **IACHY102** (VIT M.Tech
-Engineering Chemistry Lab) — a different course code than `BACHY105`,
-which the rest of this repo's docs were originally written against; see
-`docs/ARCHITECTURE.md`'s manual-status note and `docs/final_audit.md`
-for why that matters and what was taken on faith vs. verified.
+**Put the current manual PDF here, named `IACHY102.pdf`.**
 
-Its text is transcribed in `IACHY102_manual.md` in this directory —
-pasted in-chat as document content during a Claude Code session, not
-uploaded as a PDF file. **No PDF binary has been placed here.** If the
-actual PDF becomes available, drop it in as `IACHY102.pdf` and update
-`LABTUTOR_MANUAL_PDF` / `infra/docker-compose.yml` accordingly — the
-existing `backend/rag/retrieval.py` reads a PDF path directly via
-`pypdf` and does not yet know how to ingest the markdown transcription
-instead, so retrieval/citation will still return nothing until one of
-those two things happens. This is a real, open gap — see
-`docs/final_audit.md` §2, row 2.
+The source filename supplied for this course is
+`IACHY102-2026-27-manual_2_260830_133124.pdf`; either that name or
+`IACHY102.pdf` is picked up, but keep the version encoded in the
+filename if you have it — see `docs/source_manifest.json`, which pins
+ingestion to a specific `version` string precisely so a manual revision
+produces new chunk IDs instead of silently overwriting old ones.
 
-`IACHY102_manual.md` is nonetheless now the source of truth for every
+This directory is mounted read-only into the backend container at
+`/app/manual` (see `infra/docker-compose.yml`), and `LABTUTOR_MANUAL_PDF`
+points at it.
+
+## Text transcription
+
+The manual's text is transcribed in `IACHY102_manual.md` in this
+directory. It was pasted in as document content, not uploaded as a PDF,
+so **no PDF binary has been placed here.** Retrieval reads the PDF path
+and does not ingest the markdown transcription, so until the PDF is added:
+
+- `docs/source_manifest.json` reports `iachy102_manual_2026_27` as
+  **blocked** rather than ingested (`backend/sources/manifest.py`);
+- retrieval returns no manual passages, so phrased output carries no
+  manual citation.
+
+`IACHY102_manual.md` is nonetheless the source of truth for every
 formula, tolerance, experiment name and worked example a Tier 1 plugin
-should use — see `docs/final_audit.md` §4 for which of the 10 assessed
-experiments have been implemented against it so far (one, Experiment 1)
-and which are still `PendingManualPlugin` and why.
+uses. `docs/final_audit.md` §4 lists which of the 10 assessed experiments
+are implemented against it so far (Experiment 1, plus the Experiment 8
+ordering check) and which are still `PendingManualPlugin` and why.
+
+The manual is the source of truth for every formula, tolerance,
+experiment name, numbering, screenshot and worked example in this
+system — see `docs/current_state_audit.md` §0 and
+`backend/sources/tiers.py` for the full source-hierarchy rule. Nothing
+here was inferred, guessed, or filled in from a plausible textbook
+value.
+
+**A previous build session targeted a different, superseded course
+manual (BACHY105).** That manual is declared in the source manifest as
+`superseded_by: iachy102_manual_2026_27` specifically so a stray copy
+left on a machine is recognised and refused rather than silently
+ingested as current — do not drop a `BACHY105.pdf` here expecting it to
+be used.
+
+The PDF itself is deliberately not committed: it is course material, and
+whether it may be redistributed is the department's call, not this
+repository's. Add it locally and it will be picked up on the next
+ingestion run — no code change is required.

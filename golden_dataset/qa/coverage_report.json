@@ -1,0 +1,201 @@
+{
+  "exp01": {
+    "title": "Experiment 1 (subject matter pending IACHY102)",
+    "priority": "P1",
+    "routable": false,
+    "case_count": 18,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 14,
+      "out_of_scope": 4
+    },
+    "scope_mix": {
+      "direct_clean": 14,
+      "out_of_scope": 4
+    },
+    "answerable_today": 0,
+    "answerable_rate_today": 0.0,
+    "vocabulary_terms": 0,
+    "vocabulary_uncovered": []
+  },
+  "exp02": {
+    "title": "Acid-catalysed hydrolysis of ethyl acetate (kinetics)",
+    "priority": "P0",
+    "routable": true,
+    "case_count": 115,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 91,
+      "adjacent_supported": 12,
+      "out_of_scope": 12
+    },
+    "scope_mix": {
+      "direct_clean": 40,
+      "direct_messy": 40,
+      "adjacent": 17,
+      "out_of_scope": 12,
+      "adversarial": 6
+    },
+    "answerable_today": 12,
+    "answerable_rate_today": 0.104,
+    "vocabulary_terms": 14,
+    "vocabulary_uncovered": []
+  },
+  "exp03": {
+    "title": "Colorimetric and smartphone determination of Ni(II)",
+    "priority": "P0",
+    "routable": true,
+    "case_count": 115,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 89,
+      "adjacent_supported": 14,
+      "out_of_scope": 12
+    },
+    "scope_mix": {
+      "direct_clean": 40,
+      "direct_messy": 40,
+      "adjacent": 17,
+      "out_of_scope": 12,
+      "adversarial": 6
+    },
+    "answerable_today": 14,
+    "answerable_rate_today": 0.122,
+    "vocabulary_terms": 23,
+    "vocabulary_uncovered": [
+      "ni(ii)",
+      "ni2+"
+    ]
+  },
+  "exp04": {
+    "title": "Experiment 4 (subject matter pending IACHY102)",
+    "priority": "P1",
+    "routable": false,
+    "case_count": 18,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 14,
+      "out_of_scope": 4
+    },
+    "scope_mix": {
+      "direct_clean": 14,
+      "out_of_scope": 4
+    },
+    "answerable_today": 0,
+    "answerable_rate_today": 0.0,
+    "vocabulary_terms": 0,
+    "vocabulary_uncovered": []
+  },
+  "exp05": {
+    "title": "Experiment 5 (subject matter pending IACHY102)",
+    "priority": "P1",
+    "routable": false,
+    "case_count": 18,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 14,
+      "out_of_scope": 4
+    },
+    "scope_mix": {
+      "direct_clean": 14,
+      "out_of_scope": 4
+    },
+    "answerable_today": 0,
+    "answerable_rate_today": 0.0,
+    "vocabulary_terms": 0,
+    "vocabulary_uncovered": []
+  },
+  "exp06": {
+    "title": "Experiment 6 (subject matter pending IACHY102)",
+    "priority": "P1",
+    "routable": false,
+    "case_count": 18,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 14,
+      "out_of_scope": 4
+    },
+    "scope_mix": {
+      "direct_clean": 14,
+      "out_of_scope": 4
+    },
+    "answerable_today": 0,
+    "answerable_rate_today": 0.0,
+    "vocabulary_terms": 0,
+    "vocabulary_uncovered": []
+  },
+  "exp07": {
+    "title": "Molecular orbitals of methane and oxygen (computational)",
+    "priority": "P0+",
+    "routable": true,
+    "case_count": 170,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 135,
+      "adjacent_supported": 18,
+      "out_of_scope": 17
+    },
+    "scope_mix": {
+      "direct_clean": 59,
+      "direct_messy": 59,
+      "adjacent": 26,
+      "out_of_scope": 17,
+      "adversarial": 9
+    },
+    "answerable_today": 18,
+    "answerable_rate_today": 0.106,
+    "vocabulary_terms": 18,
+    "vocabulary_uncovered": []
+  },
+  "exp08": {
+    "title": "Conformational analysis of ethane and cyclohexane (computational)",
+    "priority": "P0",
+    "routable": true,
+    "case_count": 115,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 91,
+      "adjacent_supported": 12,
+      "out_of_scope": 12
+    },
+    "scope_mix": {
+      "direct_clean": 40,
+      "direct_messy": 40,
+      "adjacent": 17,
+      "out_of_scope": 12,
+      "adversarial": 6
+    },
+    "answerable_today": 12,
+    "answerable_rate_today": 0.104,
+    "vocabulary_terms": 23,
+    "vocabulary_uncovered": []
+  },
+  "exp09": {
+    "title": "Experiment 9 (subject matter pending IACHY102)",
+    "priority": "P1",
+    "routable": false,
+    "case_count": 18,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 14,
+      "out_of_scope": 4
+    },
+    "scope_mix": {
+      "direct_clean": 14,
+      "out_of_scope": 4
+    },
+    "answerable_today": 0,
+    "answerable_rate_today": 0.0,
+    "vocabulary_terms": 0,
+    "vocabulary_uncovered": []
+  },
+  "exp10": {
+    "title": "Experiment 10 (subject matter pending IACHY102)",
+    "priority": "P1",
+    "routable": false,
+    "case_count": 18,
+    "status_mix": {
+      "in_scope_retrieval_insufficient": 14,
+      "out_of_scope": 4
+    },
+    "scope_mix": {
+      "direct_clean": 14,
+      "out_of_scope": 4
+    },
+    "answerable_today": 0,
+    "answerable_rate_today": 0.0,
+    "vocabulary_terms": 0,
+    "vocabulary_uncovered": []
+  }
+}

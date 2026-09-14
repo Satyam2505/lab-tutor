@@ -50,7 +50,7 @@ def _test_environment(tmp_path_factory):
         LABTUTOR_LLM_BASE_URL="",
         LABTUTOR_LLM_API_KEY="",
         LABTUTOR_LLM_MODEL="",
-        LABTUTOR_MANUAL_PDF=str(REPO_ROOT / "manual" / "BACHY105.pdf"),
+        LABTUTOR_MANUAL_PDF=str(REPO_ROOT / "manual" / "IACHY102.pdf"),
     )
     from backend.config import reload_settings
 
