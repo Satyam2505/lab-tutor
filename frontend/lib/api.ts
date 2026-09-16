@@ -76,6 +76,8 @@ export interface Me {
   email: string;
   name: string;
   role: "student" | "faculty" | "admin";
+  reg_no: string | null;
+  profile_complete: boolean;
 }
 
 export interface Classroom {
@@ -89,6 +91,53 @@ export interface Classroom {
   active_experiment_id: string | null;
   active_session_id: string | null;
   student_count?: number;
+  /** True when the current (student) caller reaches this classroom via a
+   * classroom-scoped co-faculty promotion rather than plain enrolment. */
+  co_faculty?: boolean;
+}
+
+export interface RosterStudent {
+  id: string;
+  email: string;
+  name: string;
+  joined_at: string;
+}
+
+export interface RosterFaculty {
+  id: string;
+  email: string;
+  name: string;
+  joined_at: string;
+  /** True when this row is a student promoted to co-faculty for this
+   * classroom, not a genuine platform-faculty peer. */
+  promoted: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  role: "student" | "faculty" | "admin";
+  role_override: "student" | "faculty" | "admin" | null;
+}
+
+export interface TopicCoverage {
+  experiment_id: string;
+  steps_attempted: number;
+  steps_passed: number;
+  submissions: number;
+  diagnoses_passed: number;
+  diagnoses_failed: number;
+  diagnoses_escalated: number;
+  qa_messages: number;
+  coverage_score: number;
+}
+
+export interface StudentCoverage {
+  student_id: string;
+  student_email: string;
+  student_name: string;
+  topics: TopicCoverage[];
 }
 
 export interface ActiveSessionInfo {

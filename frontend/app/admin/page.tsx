@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActionButton } from "@/components/ActionButton";
 import { Shell } from "@/components/Shell";
-import { ApiError, api, newIdempotencyKey, type Classroom } from "@/lib/api";
+import { ApiError, api, newIdempotencyKey, type AdminUser, type Classroom } from "@/lib/api";
 
 export default function AdminPage() {
   return <Shell requireRole="admin">{() => <AdminConsole />}</Shell>;
@@ -96,6 +96,119 @@ function AdminConsole() {
           </tbody>
         </table>
       )}
+
+      <UserRoleManager />
     </>
+  );
+}
+
+function UserRoleManager() {
+  const [query, setQuery] = useState("");
+  const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [error, setError] = useState("");
+
+  const search = useCallback(async (q: string) => {
+    const data = await api.get<{ users: AdminUser[] }>(
+      `/api/admin/users?q=${encodeURIComponent(q)}`,
+    );
+    setUsers(data.users);
+  }, []);
+
+  useEffect(() => {
+    search("").catch((e) => setError(String(e.message ?? e)));
+  }, [search]);
+
+  return (
+    <>
+      <h2>Users — change anyone's role</h2>
+      <div className="card">
+        {error && <div className="error">{error}</div>}
+        <label>
+          <span>Search by name or email</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") search(query).catch((err) => setError(String(err)));
+            }}
+            placeholder="name or email"
+          />
+        </label>
+        <ActionButton
+          pendingLabel="Searching…"
+          onAction={async () => {
+            setError("");
+            await search(query);
+          }}
+        >
+          Search
+        </ActionButton>
+      </div>
+
+      {users && (
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <UserRoleRow
+                key={u.id}
+                user={u}
+                onChanged={() => search(query).catch((err) => setError(String(err)))}
+                onError={setError}
+              />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function UserRoleRow({
+  user,
+  onChanged,
+  onError,
+}: {
+  user: AdminUser;
+  onChanged: () => void;
+  onError: (message: string) => void;
+}) {
+  const [role, setRole] = useState(user.role);
+
+  return (
+    <tr>
+      <td>{user.name}</td>
+      <td className="mono">{user.email}</td>
+      <td>
+        <select value={role} onChange={(e) => setRole(e.target.value as AdminUser["role"])}>
+          <option value="student">student</option>
+          <option value="faculty">faculty</option>
+          <option value="admin">admin</option>
+        </select>
+      </td>
+      <td>
+        <ActionButton
+          disabled={role === user.role}
+          pendingLabel="Updating…"
+          onAction={async () => {
+            try {
+              await api.patch(`/api/admin/users/${user.id}/role`, { role });
+              onChanged();
+            } catch (e) {
+              onError(e instanceof ApiError ? e.message : String(e));
+            }
+          }}
+        >
+          Update role
+        </ActionButton>
+      </td>
+    </tr>
   );
 }

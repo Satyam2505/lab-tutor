@@ -89,6 +89,15 @@ export function Shell({
     );
   }
 
+  if (!me.profile_complete) {
+    return (
+      <main>
+        <h1>Finish setting up your account</h1>
+        <ProfileCompletionForm me={me} onDone={setMe} />
+      </main>
+    );
+  }
+
   return (
     <>
       <header className="bar">
@@ -99,5 +108,60 @@ export function Shell({
       </header>
       <main>{children(me)}</main>
     </>
+  );
+}
+
+function ProfileCompletionForm({
+  me,
+  onDone,
+}: {
+  me: Me;
+  onDone: (me: Me) => void;
+}) {
+  const [name, setName] = useState(me.name ?? "");
+  const [regNo, setRegNo] = useState(me.reg_no ?? "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const needsRegNo = me.role === "student";
+
+  return (
+    <div className="card">
+      {error && <div className="error">{error}</div>}
+      <p className="muted">
+        Signed in as {me.email}. We just need a couple of details before you
+        continue.
+      </p>
+      <label>
+        <span>Full name</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      {needsRegNo && (
+        <label>
+          <span>Registration number</span>
+          <input value={regNo} onChange={(e) => setRegNo(e.target.value)} className="mono" />
+        </label>
+      )}
+      <button
+        className="btn btn-primary"
+        disabled={saving || !name.trim() || (needsRegNo && !regNo.trim())}
+        onClick={async () => {
+          setSaving(true);
+          setError("");
+          try {
+            const updated = await api.post<Me>("/api/auth/complete-profile", {
+              name: name.trim(),
+              reg_no: needsRegNo ? regNo.trim() : null,
+            });
+            onDone(updated);
+          } catch (e) {
+            setError(e instanceof ApiError ? e.message : String(e));
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? "Saving…" : "Continue"}
+      </button>
+    </div>
   );
 }

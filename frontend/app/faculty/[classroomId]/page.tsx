@@ -14,6 +14,9 @@ import {
   type DashboardSubmission,
   type Escalation,
   type Experiment,
+  type RosterFaculty,
+  type RosterStudent,
+  type StudentCoverage,
   type StudentSummary,
   type SummaryJob,
 } from "@/lib/api";
@@ -31,7 +34,15 @@ export default function ClassroomDashboardPage({
   );
 }
 
-type Tab = "ask" | "socratic" | "diagnostic" | "submissions" | "escalations" | "summaries";
+type Tab =
+  | "ask"
+  | "socratic"
+  | "diagnostic"
+  | "submissions"
+  | "escalations"
+  | "summaries"
+  | "roster"
+  | "coverage";
 
 const TAB_LABEL: Record<Tab, string> = {
   ask: "Ask",
@@ -40,6 +51,8 @@ const TAB_LABEL: Record<Tab, string> = {
   submissions: "Submissions",
   escalations: "Review queue",
   summaries: "Summaries",
+  roster: "Roster",
+  coverage: "Coverage",
 };
 
 function Dashboard({ classroomId }: { classroomId: string }) {
@@ -57,7 +70,16 @@ function Dashboard({ classroomId }: { classroomId: string }) {
 
       <div className="row" style={{ marginBottom: 14, flexWrap: "wrap" }}>
         {(
-          ["ask", "socratic", "diagnostic", "submissions", "escalations", "summaries"] as Tab[]
+          [
+            "ask",
+            "socratic",
+            "diagnostic",
+            "submissions",
+            "escalations",
+            "summaries",
+            "roster",
+            "coverage",
+          ] as Tab[]
         ).map((t) => (
           <button
             key={t}
@@ -82,6 +104,8 @@ function Dashboard({ classroomId }: { classroomId: string }) {
       {tab === "summaries" && (
         <Summaries classroomId={classroomId} onError={setError} />
       )}
+      {tab === "roster" && <Roster classroomId={classroomId} onError={setError} />}
+      {tab === "coverage" && <Coverage classroomId={classroomId} onError={setError} />}
     </>
   );
 }
@@ -456,6 +480,218 @@ function Summaries({
             </p>
           </div>
         ))
+      )}
+    </>
+  );
+}
+
+function Roster({
+  classroomId,
+  onError,
+}: {
+  classroomId: string;
+  onError: (m: string) => void;
+}) {
+  const [students, setStudents] = useState<RosterStudent[] | null>(null);
+  const [faculty, setFaculty] = useState<RosterFaculty[] | null>(null);
+
+  const load = useCallback(async () => {
+    const [s, f] = await Promise.all([
+      api.get<{ students: RosterStudent[] }>(`/api/classrooms/${classroomId}/roster`),
+      api.get<{ faculty: RosterFaculty[] }>(`/api/classrooms/${classroomId}/faculty`),
+    ]);
+    setStudents(s.students);
+    setFaculty(f.faculty);
+  }, [classroomId]);
+
+  useEffect(() => {
+    load().catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+  }, [load, onError]);
+
+  if (students === null || faculty === null) return <p className="muted">Loading…</p>;
+
+  return (
+    <>
+      <p className="muted">
+        Promoting a student makes them full faculty for this classroom only
+        — their platform account stays a student everywhere else.
+      </p>
+
+      <h2>Faculty</h2>
+      <div className="card">
+        {faculty.length === 0 ? (
+          <p className="muted">No faculty yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Joined</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {faculty.map((f) => (
+                <tr key={f.id}>
+                  <td>{f.name}</td>
+                  <td className="mono">{f.email}</td>
+                  <td>{new Date(f.joined_at).toLocaleString()}</td>
+                  <td>
+                    {f.promoted ? (
+                      <>
+                        <span className="pill" style={{ marginRight: 8 }}>
+                          promoted co-faculty
+                        </span>
+                        <ActionButton
+                          variant="secondary"
+                          pendingLabel="Demoting…"
+                          onAction={async () => {
+                            try {
+                              await api.post(`/api/classrooms/${classroomId}/demote`, {
+                                user_id: f.id,
+                              });
+                              await load();
+                            } catch (e) {
+                              onError(e instanceof ApiError ? e.message : String(e));
+                            }
+                          }}
+                        >
+                          Demote to student
+                        </ActionButton>
+                      </>
+                    ) : (
+                      <span className="muted">platform faculty</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <h2>Students</h2>
+      <div className="card">
+        {students.length === 0 ? (
+          <p className="muted">No students yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Joined</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td className="mono">{s.email}</td>
+                  <td>{new Date(s.joined_at).toLocaleString()}</td>
+                  <td>
+                    <ActionButton
+                      variant="secondary"
+                      pendingLabel="Promoting…"
+                      onAction={async () => {
+                        try {
+                          await api.post(`/api/classrooms/${classroomId}/promote`, {
+                            student_user_id: s.id,
+                          });
+                          await load();
+                        } catch (e) {
+                          onError(e instanceof ApiError ? e.message : String(e));
+                        }
+                      }}
+                    >
+                      Promote to co-faculty
+                    </ActionButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  );
+}
+
+function Coverage({
+  classroomId,
+  onError,
+}: {
+  classroomId: string;
+  onError: (m: string) => void;
+}) {
+  const [rows, setRows] = useState<StudentCoverage[] | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ students: StudentCoverage[] }>(`/api/dashboard/classrooms/${classroomId}/coverage`)
+      .then((d) => setRows(d.students))
+      .catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+  }, [classroomId, onError]);
+
+  if (rows === null) return <p className="muted">Loading…</p>;
+
+  const experiments = Array.from(
+    new Set(rows.flatMap((r) => r.topics.map((t) => t.experiment_id))),
+  ).sort();
+
+  return (
+    <>
+      <p className="muted">
+        A rough, deterministic engagement indicator per experiment — not a
+        grade. Computed from stored attempt/submission/diagnosis counts
+        only; no model ever produces or adjusts this number.
+      </p>
+      {rows.length === 0 ? (
+        <p className="muted">No students yet.</p>
+      ) : experiments.length === 0 ? (
+        <p className="muted">No recorded activity yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Student</th>
+              {experiments.map((e) => (
+                <th key={e}>{e}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.student_id}>
+                <td>{r.student_name || r.student_email}</td>
+                {experiments.map((e) => {
+                  const t = r.topics.find((topic) => topic.experiment_id === e);
+                  return (
+                    <td key={e}>
+                      {t ? (
+                        <span
+                          className={`pill ${
+                            t.coverage_score >= 70
+                              ? "pill-pass"
+                              : t.coverage_score >= 40
+                                ? ""
+                                : "pill-fail"
+                          }`}
+                        >
+                          {t.coverage_score}
+                        </span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </>
   );
