@@ -247,25 +247,37 @@ async def attempt(
     extracted = extract_submission(
         body.data, numeric_fields=numeric_keys, series_fields=series_keys
     )
-    if not extracted.ok:
+    total_steps = len(steps_for(plugin))
+
+    def _invalid_attempt_response(message: str) -> dict:
+        # Same shape as the full success/failure path below -- a partial
+        # dict here (missing total_steps/complete/prompt) previously made
+        # the frontend's unconditional `setState({...result})` overwrite
+        # those fields with undefined, rendering "Step NaN of" (found live
+        # in a browser smoke test by submitting an empty/invalid attempt).
         return {
             "passed": False,
             "current_step": session.current_step,
-            "message": "; ".join(extracted.errors),
+            "total_steps": total_steps,
+            "message": message,
             "hint_level": 0,
+            "complete": session.all_steps_complete,
+            "prompt": (
+                present_step(plugin, session.current_step)
+                if not session.all_steps_complete
+                else ""
+            ),
         }
+
+    if not extracted.ok:
+        return _invalid_attempt_response("; ".join(extracted.errors))
 
     submitted: float | None = None
     if body.value is not None:
         try:
             submitted = parse_number(body.value, "value")
         except ExtractionError as exc:
-            return {
-                "passed": False,
-                "current_step": session.current_step,
-                "message": str(exc),
-                "hint_level": 0,
-            }
+            return _invalid_attempt_response(str(exc))
 
     # Accumulate the caller's own readings across steps.
     merged = dict(session.student_data or {})

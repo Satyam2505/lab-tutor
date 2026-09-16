@@ -162,12 +162,17 @@ function SectionCard({
               <option value="">— choose —</option>
               {experiments.map((e) => (
                 <option key={e.id} value={e.id}>
+                  {e.priority === "P0+" || e.priority === "P0" ? "★ " : ""}
                   {e.id} — {e.title}
                   {e.ready ? "" : " (not configured)"}
                 </option>
               ))}
             </select>
           </label>
+          <p className="muted" style={{ marginTop: -6 }}>
+            All 10 experiments are available; ★ marks the most thoroughly
+            tested (exp02, exp03, exp07, exp08).
+          </p>
           <ActionButton
             disabled={!pendingExperiment}
             pendingLabel="Starting…"

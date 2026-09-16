@@ -16,6 +16,7 @@ function StudentLab() {
   const [classrooms, setClassrooms] = useState<Classroom[] | null>(null);
   const [selected, setSelected] = useState<Classroom | null>(null);
   const [error, setError] = useState("");
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   const loadClassrooms = useCallback(async () => {
     const data = await api.get<{ classrooms: Classroom[] }>(
@@ -96,8 +97,11 @@ function StudentLab() {
             <>
               <QaChat classroomId={selected.id} />
               <SocraticPanel classroomId={selected.id} />
-              <SubmitPanel classroomId={selected.id} />
-              <HistoryPanel />
+              <SubmitPanel
+                classroomId={selected.id}
+                onSubmitted={() => setHistoryRefreshKey((k) => k + 1)}
+              />
+              <HistoryPanel refreshKey={historyRefreshKey} />
             </>
           )}
         </>
@@ -114,7 +118,7 @@ interface SubmissionHistoryRow {
   explanation: string;
 }
 
-function HistoryPanel() {
+function HistoryPanel({ refreshKey }: { refreshKey: number }) {
   const [rows, setRows] = useState<SubmissionHistoryRow[] | null>(null);
   const [error, setError] = useState("");
 
@@ -123,7 +127,7 @@ function HistoryPanel() {
       .get<{ submissions: SubmissionHistoryRow[] }>("/api/submissions/mine")
       .then((d) => setRows(d.submissions))
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
-  }, []);
+  }, [refreshKey]);
 
   return (
     <>

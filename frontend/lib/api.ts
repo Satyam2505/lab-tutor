@@ -162,6 +162,9 @@ export interface Experiment {
   kind: string;
   ready: boolean;
   manual_reference: string;
+  /** Evaluation priority, not a restriction -- all 10 experiments are
+   * available; "P0+"/"P0" got the most testing effort. */
+  priority: string;
 }
 
 export type TutorIntent =

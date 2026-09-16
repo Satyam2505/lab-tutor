@@ -16,10 +16,15 @@ export function SubmitPanel({
   classroomId,
   experimentId,
   title = "Submit a finished record",
+  onSubmitted,
 }: {
   classroomId: string;
   experimentId?: string;
   title?: string;
+  /** Called after a submission is recorded (pass/fail/escalated/invalid
+   * all count -- the row exists either way), so a sibling history view can
+   * refresh instead of going stale until the next full page load. */
+  onSubmitted?: () => void;
 }) {
   const [data, setData] = useState("");
   const [reported, setReported] = useState("");
@@ -79,6 +84,7 @@ export function SubmitPanel({
                 idempotency_key: newIdempotencyKey(),
               });
               setResult(r);
+              onSubmitted?.();
             } catch (e) {
               setError(e instanceof ApiError ? e.message : String(e));
             }

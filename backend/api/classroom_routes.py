@@ -124,7 +124,18 @@ async def _classroom_payload(db: AsyncSession, classroom: Classroom, *, include_
 async def list_experiments(
     principal: Principal = Depends(require_faculty_or_admin),
 ) -> dict:
-    """Experiments that may be started as a class session, and readiness."""
+    """Every experiment that may be started as a class session, readiness,
+    and its evaluation priority (P0+/P0/P1 -- product coverage is all ten;
+    this only orders where testing effort concentrated, per
+    backend/scope/ontology.py::PRIORITY). Listed in priority order so the
+    best-covered experiments surface first without hiding the rest.
+    """
+    from backend.scope.ontology import PRIORITY
+
+    plugins = sorted(
+        all_plugins(),
+        key=lambda p: (PRIORITY.get(p.id, "P1"), p.id),
+    )
     return {
         "experiments": [
             {
@@ -133,8 +144,9 @@ async def list_experiments(
                 "kind": p.kind,
                 "ready": p.is_ready,
                 "manual_reference": p.manual_reference,
+                "priority": PRIORITY.get(p.id, "P1"),
             }
-            for p in all_plugins()
+            for p in plugins
         ]
     }
 
