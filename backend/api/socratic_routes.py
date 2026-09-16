@@ -74,11 +74,13 @@ class AttemptRequest(BaseModel):
     value: Any = None
 
 
-def _actor_type_for(principal: Principal) -> ActorType:
-    if principal.is_faculty:
-        return ActorType.FACULTY_TEST
+async def _actor_type_for(db: AsyncSession, principal: Principal, classroom_id: str) -> ActorType:
     if principal.is_admin:
         return ActorType.ADMIN_TEST
+    if principal.is_faculty:
+        return ActorType.FACULTY_TEST
+    if await classroom_service.can_act_as_faculty(db, principal, classroom_id):
+        return ActorType.FACULTY_TEST
     return ActorType.STUDENT
 
 
@@ -144,7 +146,7 @@ async def start_session(
     Faculty/admin may run a test session against an explicit experiment_id
     even with no active class session (brief §11/§12).
     """
-    actor_type = _actor_type_for(principal)
+    actor_type = await _actor_type_for(db, principal, body.classroom_id)
 
     class_session_id: str | None = None
     if actor_type is ActorType.STUDENT:

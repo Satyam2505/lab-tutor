@@ -50,11 +50,13 @@ class SubmissionRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=128)
 
 
-def _actor_type_for(principal: Principal) -> ActorType:
-    if principal.is_faculty:
-        return ActorType.FACULTY_TEST
+async def _actor_type_for(db: AsyncSession, principal: Principal, classroom_id: str) -> ActorType:
     if principal.is_admin:
         return ActorType.ADMIN_TEST
+    if principal.is_faculty:
+        return ActorType.FACULTY_TEST
+    if await classroom_service.can_act_as_faculty(db, principal, classroom_id):
+        return ActorType.FACULTY_TEST
     return ActorType.STUDENT
 
 
@@ -64,7 +66,7 @@ async def submit(
     principal: Principal = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    actor_type = _actor_type_for(principal)
+    actor_type = await _actor_type_for(db, principal, body.classroom_id)
 
     limit = ratelimit.check_submission(principal.id)
     if not limit.allowed:

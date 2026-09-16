@@ -55,19 +55,47 @@ class RegenerateCodeRequest(BaseModel):
     which: str = Field(pattern="^(student|faculty)$")
 
 
-async def _classroom_or_404(
-    db: AsyncSession, principal: Principal, scope: FacultyScope, classroom_id: str
-) -> Classroom:
-    """Admin sees any classroom; faculty only classrooms they belong to.
-    Indistinguishable from "does not exist" either way, so a faculty
-    account cannot probe for another section's existence.
+async def require_classroom_faculty(
+    classroom_id: str,
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Principal:
+    """Admin, a genuine platform-faculty member of this classroom, or a
+    student promoted to classroom-scoped co-faculty here -- see
+    `classroom_service.can_act_as_faculty`. Replaces `require_faculty_or_
+    admin` + `FacultyScope` membership check on every route a promoted
+    co-faculty needs real (not cosmetic) access to.
+
+    Same two-stage 403-then-404 split as `require_faculty_or_admin_or_co_
+    faculty` (dashboard_routes.py): a caller with zero faculty capability
+    anywhere gets a flat 403 (matches every pre-existing "staff only"
+    test); a caller who IS faculty/co-faculty somewhere but not for THIS
+    classroom_id gets 404, indistinguishable from "does not exist" --
+    consistent with every other membership check in this file.
     """
-    if principal.is_admin:
-        classroom = (
-            await db.scalars(select(Classroom).where(Classroom.id == classroom_id))
-        ).first()
-    else:
-        classroom = await scope.get_classroom(classroom_id)
+    if not (principal.is_faculty or principal.is_admin):
+        if not await classroom_service.has_any_faculty_membership(db, principal.id):
+            await audit.record(
+                db, audit.AUTH_FAILURE, user_id=principal.id,
+                detail={"reason": "faculty_or_admin_role_required", "actual": principal.role.value},
+                commit=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Staff only"
+            )
+    if not await classroom_service.can_act_as_faculty(db, principal, classroom_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
+        )
+    return principal
+
+
+async def _get_classroom_or_404(db: AsyncSession, classroom_id: str) -> Classroom:
+    """Membership/role already proven by `require_classroom_faculty` --
+    this just fetches the row."""
+    classroom = (
+        await db.scalars(select(Classroom).where(Classroom.id == classroom_id))
+    ).first()
     if classroom is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
@@ -160,15 +188,34 @@ async def my_classrooms(
 
 @router.get("/enrolled")
 async def enrolled_classrooms(
+    principal: Principal = Depends(require_student),
     scope: StudentScope = Depends(student_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    """A student sees only classrooms they are enrolled in, and no join code."""
-    ids = await scope.active_classroom_ids()
+    """A student sees classrooms they're enrolled in as a student, plus any
+    classroom they've been promoted to classroom-scoped co-faculty in
+    (their own STUDENT membership there is deactivated on promotion, so
+    `active_classroom_ids()` alone would miss it -- unioned in below)."""
+    student_ids = set(await scope.active_classroom_ids())
+    co_faculty_ids = set(
+        await db.scalars(
+            select(ClassroomMembership.classroom_id).where(
+                ClassroomMembership.user_id == principal.id,
+                ClassroomMembership.role == ClassroomRole.FACULTY,
+                ClassroomMembership.active.is_(True),
+            )
+        )
+    )
+    ids = student_ids | co_faculty_ids
     if not ids:
         return {"classrooms": []}
     rows = list((await db.scalars(select(Classroom).where(Classroom.id.in_(ids)))).all())
-    return {"classrooms": [await _classroom_payload(db, c, include_codes=False) for c in rows]}
+    out = []
+    for c in rows:
+        payload = await _classroom_payload(db, c, include_codes=False)
+        payload["co_faculty"] = c.id in co_faculty_ids
+        out.append(payload)
+    return {"classrooms": out}
 
 
 @router.post("/join")
@@ -226,11 +273,10 @@ async def join(
 async def set_join_open(
     classroom_id: str,
     body: JoinOpenRequest,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(require_classroom_faculty),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    classroom = await _classroom_or_404(db, principal, scope, classroom_id)
+    classroom = await _get_classroom_or_404(db, classroom_id)
     await classroom_service.set_join_open(db, classroom, open_=body.join_open)
     await db.commit()
     return {"id": classroom.id, "join_open": classroom.join_open}
@@ -240,11 +286,10 @@ async def set_join_open(
 async def regenerate_code(
     classroom_id: str,
     body: RegenerateCodeRequest,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(require_classroom_faculty),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    classroom = await _classroom_or_404(db, principal, scope, classroom_id)
+    classroom = await _get_classroom_or_404(db, classroom_id)
     await classroom_service.regenerate_join_code(db, classroom, which=body.which)
     await audit.record(
         db, audit.JOIN_CODE_REGENERATED, user_id=principal.id, classroom_id=classroom.id,
@@ -257,11 +302,10 @@ async def regenerate_code(
 @router.get("/{classroom_id}/roster")
 async def roster(
     classroom_id: str,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(require_classroom_faculty),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    await _classroom_or_404(db, principal, scope, classroom_id)
+    await _get_classroom_or_404(db, classroom_id)
     rows = await classroom_service.roster_with_users(db, classroom_id)
     return {
         "students": [
@@ -275,19 +319,81 @@ async def roster(
 @router.get("/{classroom_id}/faculty")
 async def faculty_roster(
     classroom_id: str,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(require_classroom_faculty),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    await _classroom_or_404(db, principal, scope, classroom_id)
+    await _get_classroom_or_404(db, classroom_id)
     rows = await classroom_service.faculty_roster_with_users(db, classroom_id)
-    return {
-        "faculty": [
-            {"id": user.id, "email": user.email, "name": user.name,
-             "joined_at": membership.joined_at.isoformat()}
-            for membership, user in rows
-        ]
-    }
+    from backend.auth.roles import role_for_email
+
+    result = []
+    for membership, user in rows:
+        platform_role = (
+            user.role_override if user.role_override is not None else role_for_email(user.email)
+        )
+        result.append({
+            "id": user.id, "email": user.email, "name": user.name,
+            "joined_at": membership.joined_at.isoformat(),
+            # A co-faculty's platform role is still "student" -- lets the
+            # frontend show a "Demote" button only for promoted rows, never
+            # for a genuine faculty peer (admin-only removal for those).
+            "promoted": platform_role == Role.STUDENT,
+        })
+    return {"faculty": result}
+
+
+class PromoteRequest(BaseModel):
+    student_user_id: str
+
+
+class DemoteRequest(BaseModel):
+    user_id: str
+
+
+@router.post("/{classroom_id}/promote", status_code=status.HTTP_201_CREATED)
+async def promote_to_class_faculty(
+    classroom_id: str,
+    body: PromoteRequest,
+    principal: Principal = Depends(require_classroom_faculty),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    await _get_classroom_or_404(db, classroom_id)
+    try:
+        await classroom_service.promote_student_to_class_faculty(
+            db, classroom_id, target_user_id=body.student_user_id
+        )
+    except classroom_service.NotEnrolled as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    await audit.record(
+        db, audit.CLASS_FACULTY_PROMOTED, user_id=principal.id, classroom_id=classroom_id,
+        detail={"target_user_id": body.student_user_id},
+    )
+    await db.commit()
+    return {"promoted": True}
+
+
+@router.post("/{classroom_id}/demote")
+async def demote_from_class_faculty(
+    classroom_id: str,
+    body: DemoteRequest,
+    principal: Principal = Depends(require_classroom_faculty),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    await _get_classroom_or_404(db, classroom_id)
+    try:
+        await classroom_service.demote_class_faculty_to_student(
+            db, classroom_id, target_user_id=body.user_id
+        )
+    except classroom_service.NotCoFacultyEligible as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except classroom_service.NotEnrolled as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    await audit.record(
+        db, audit.CLASS_FACULTY_DEMOTED, user_id=principal.id, classroom_id=classroom_id,
+        detail={"target_user_id": body.user_id},
+    )
+    await db.commit()
+    return {"demoted": True}
 
 
 @router.delete("/{classroom_id}/faculty/{user_id}")
@@ -327,16 +433,17 @@ async def active_session(
     """
     if principal.is_admin:
         pass
-    elif principal.is_faculty:
-        if not await FacultyScope(db, principal.id).is_member(classroom_id):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
-            )
-    else:
+    elif await classroom_service.can_act_as_faculty(db, principal, classroom_id):
+        pass
+    elif principal.is_student:
         if not await StudentScope(db, principal.id).is_enrolled(classroom_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
             )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
+        )
 
     session = await classroom_service.get_active_session(db, classroom_id)
     if session is None:
@@ -353,11 +460,10 @@ async def active_session(
 async def start_class_session(
     classroom_id: str,
     body: StartSessionRequest,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(require_classroom_faculty),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    await _classroom_or_404(db, principal, scope, classroom_id)
+    await _get_classroom_or_404(db, classroom_id)
     try:
         session = await classroom_service.start_session(
             db, classroom_id, experiment_id=body.experiment_id, started_by=principal.id
@@ -379,11 +485,10 @@ async def start_class_session(
 async def end_class_session(
     classroom_id: str,
     session_id: str,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(require_classroom_faculty),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    await _classroom_or_404(db, principal, scope, classroom_id)
+    await _get_classroom_or_404(db, classroom_id)
     session = await classroom_service.get_active_session(db, classroom_id)
     if session is None or session.id != session_id:
         raise HTTPException(

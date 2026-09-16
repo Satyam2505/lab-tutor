@@ -204,3 +204,45 @@ async def faculty_or_admin_scope(
     `principal.is_admin` before relying on this scope's ownership filter.
     """
     return FacultyScope(db, principal.id)
+
+
+async def require_faculty_or_admin_or_co_faculty(
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Principal:
+    """Same 403-for-wrong-role / 404-for-wrong-classroom split every other
+    route in this codebase makes, extended for classroom-scoped co-faculty:
+    a plain student with zero faculty capability anywhere gets 403 here
+    (matches existing tests' expectations), while a student promoted to
+    co-faculty in *some* classroom passes this gate and then gets a
+    classroom-specific 404 from `_classroom_or_404` if the resource they
+    asked for belongs to a classroom they aren't promoted in.
+    """
+    if principal.is_faculty or principal.is_admin:
+        return principal
+    from backend.classrooms.service import has_any_faculty_membership
+
+    if await has_any_faculty_membership(db, principal.id):
+        return principal
+    await audit.record(
+        db, audit.AUTH_FAILURE,
+        user_id=principal.id,
+        detail={"reason": "faculty_or_admin_role_required", "actual": principal.role.value},
+        commit=True,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN, detail="Staff only"
+    )
+
+
+async def classroom_faculty_scope(
+    principal: Principal = Depends(require_faculty_or_admin_or_co_faculty),
+    db: AsyncSession = Depends(get_session),
+) -> FacultyScope:
+    """Like `faculty_or_admin_scope`, but also admits a student promoted to
+    classroom-scoped co-faculty somewhere (see `require_faculty_or_admin_
+    or_co_faculty`). `FacultyScope`'s own membership predicate
+    (`ClassroomMembership(role=FACULTY, active)`) then naturally scopes
+    each query/route to only the classroom(s) they're actually faculty in.
+    """
+    return FacultyScope(db, principal.id)

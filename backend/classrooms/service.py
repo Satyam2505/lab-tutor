@@ -55,6 +55,12 @@ class NotEnrolled(ClassroomError):
     pass
 
 
+class NotCoFacultyEligible(ClassroomError):
+    """Demote target is not a classroom-promoted co-faculty (i.e. their
+    platform role isn't STUDENT) -- refuse rather than touch a genuine
+    faculty peer, which stays admin-only via `remove_faculty`."""
+
+
 class SessionAlreadyActive(ClassroomError):
     pass
 
@@ -218,6 +224,141 @@ async def remove_faculty(
 
     membership.active = False
     membership.removed_at = _now()
+    await db.flush()
+
+
+async def _has_active_faculty_membership(
+    db: AsyncSession, classroom_id: str, user_id: str
+) -> bool:
+    stmt = select(ClassroomMembership).where(
+        ClassroomMembership.classroom_id == classroom_id,
+        ClassroomMembership.user_id == user_id,
+        ClassroomMembership.role == ClassroomRole.FACULTY,
+        ClassroomMembership.active.is_(True),
+    )
+    return (await db.scalars(stmt)).first() is not None
+
+
+async def has_any_faculty_membership(db: AsyncSession, user_id: str) -> bool:
+    """True if the user has an active FACULTY membership in ANY classroom
+    (genuine faculty peer or classroom-promoted co-faculty, anywhere) --
+    used only to distinguish "a plain student with zero faculty capability"
+    (403, wrong role entirely) from "co-faculty for a different classroom
+    than the one requested" (404, right role wrong resource), the same
+    403-vs-404 split every other route in this codebase already makes.
+    """
+    stmt = select(ClassroomMembership).where(
+        ClassroomMembership.user_id == user_id,
+        ClassroomMembership.role == ClassroomRole.FACULTY,
+        ClassroomMembership.active.is_(True),
+    )
+    return (await db.scalars(stmt)).first() is not None
+
+
+async def can_act_as_faculty(db: AsyncSession, principal, classroom_id: str) -> bool:
+    """True for admin (global authority), for a genuine platform-faculty
+    member of this classroom, and for a student who has been promoted to
+    classroom-scoped co-faculty here -- both of the latter two are the
+    exact same underlying membership row (`ClassroomMembership(role=
+    FACULTY, active)`), so one check covers both. A co-faculty gets full
+    faculty behaviour, but only for this one classroom_id.
+    """
+    if principal.is_admin:
+        return True
+    return await _has_active_faculty_membership(db, classroom_id, principal.id)
+
+
+async def promote_student_to_class_faculty(
+    db: AsyncSession, classroom_id: str, *, target_user_id: str
+) -> None:
+    """Classroom-scoped only: does not touch the target's platform Role.
+    Converts their STUDENT membership in this classroom to FACULTY."""
+    from backend.models import _now
+
+    stmt = select(ClassroomMembership).where(
+        ClassroomMembership.classroom_id == classroom_id,
+        ClassroomMembership.user_id == target_user_id,
+        ClassroomMembership.role == ClassroomRole.STUDENT,
+        ClassroomMembership.active.is_(True),
+    )
+    student_membership = (await db.scalars(stmt)).first()
+    if student_membership is None:
+        raise NotEnrolled("User is not an active student member of this classroom")
+    student_membership.active = False
+    student_membership.removed_at = _now()
+
+    existing_faculty = (
+        await db.scalars(
+            select(ClassroomMembership).where(
+                ClassroomMembership.classroom_id == classroom_id,
+                ClassroomMembership.user_id == target_user_id,
+                ClassroomMembership.role == ClassroomRole.FACULTY,
+            )
+        )
+    ).first()
+    if existing_faculty is not None:
+        existing_faculty.active = True
+        existing_faculty.removed_at = None
+    else:
+        db.add(
+            ClassroomMembership(
+                classroom_id=classroom_id, user_id=target_user_id, role=ClassroomRole.FACULTY
+            )
+        )
+    await db.flush()
+
+
+async def demote_class_faculty_to_student(
+    db: AsyncSession, classroom_id: str, *, target_user_id: str
+) -> None:
+    """Only ever touches a promoted co-faculty (platform role STUDENT).
+    A genuine platform-faculty peer can only be removed by an admin, via
+    `remove_faculty` -- this function refuses to touch one."""
+    from backend.auth.roles import role_for_email
+    from backend.models import _now
+
+    target = (await db.scalars(select(User).where(User.id == target_user_id))).first()
+    if target is None:
+        raise NotCoFacultyEligible("User not found")
+    effective_role = (
+        target.role_override if target.role_override is not None else role_for_email(target.email)
+    )
+    if effective_role != Role.STUDENT:
+        raise NotCoFacultyEligible(
+            "This user's platform role is not student -- demote a genuine "
+            "faculty peer via admin removal instead."
+        )
+
+    stmt = select(ClassroomMembership).where(
+        ClassroomMembership.classroom_id == classroom_id,
+        ClassroomMembership.user_id == target_user_id,
+        ClassroomMembership.role == ClassroomRole.FACULTY,
+        ClassroomMembership.active.is_(True),
+    )
+    faculty_membership = (await db.scalars(stmt)).first()
+    if faculty_membership is None:
+        raise NotEnrolled("User is not an active co-faculty member of this classroom")
+    faculty_membership.active = False
+    faculty_membership.removed_at = _now()
+
+    student_membership = (
+        await db.scalars(
+            select(ClassroomMembership).where(
+                ClassroomMembership.classroom_id == classroom_id,
+                ClassroomMembership.user_id == target_user_id,
+                ClassroomMembership.role == ClassroomRole.STUDENT,
+            )
+        )
+    ).first()
+    if student_membership is not None:
+        student_membership.active = True
+        student_membership.removed_at = None
+    else:
+        db.add(
+            ClassroomMembership(
+                classroom_id=classroom_id, user_id=target_user_id, role=ClassroomRole.STUDENT
+            )
+        )
     await db.flush()
 
 

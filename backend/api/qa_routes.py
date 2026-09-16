@@ -46,11 +46,17 @@ class AskRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
 
 
-def _actor_type_for(principal: Principal) -> ActorType:
-    if principal.is_faculty:
-        return ActorType.FACULTY_TEST
+async def _actor_type_for(db: AsyncSession, principal: Principal, classroom_id: str) -> ActorType:
     if principal.is_admin:
         return ActorType.ADMIN_TEST
+    if principal.is_faculty:
+        return ActorType.FACULTY_TEST
+    # A student promoted to classroom-scoped co-faculty here (see
+    # classrooms/service.py::can_act_as_faculty) is tagged FACULTY_TEST for
+    # their activity in THIS classroom, same as any other faculty test
+    # activity -- never counted as their own student engagement/summaries.
+    if await classroom_service.can_act_as_faculty(db, principal, classroom_id):
+        return ActorType.FACULTY_TEST
     return ActorType.STUDENT
 
 
@@ -94,7 +100,7 @@ async def ask(
     principal: Principal = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    actor_type = _actor_type_for(principal)
+    actor_type = await _actor_type_for(db, principal, body.classroom_id)
     class_session_id, experiment_id = await _resolve_context(
         db, principal, actor_type, body.classroom_id
     )

@@ -7,6 +7,7 @@ configured email domains, and are re-derived on every role-gated request
 
 from backend.auth.dependencies import (
     Principal,
+    classroom_faculty_scope,
     current_user,
     faculty_or_admin_scope,
     faculty_scope,
@@ -22,6 +23,7 @@ from backend.auth.roles import DomainNotPermitted, domain_of, is_permitted, role
 __all__ = [
     "DomainNotPermitted",
     "Principal",
+    "classroom_faculty_scope",
     "current_user",
     "domain_of",
     "faculty_or_admin_scope",

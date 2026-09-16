@@ -17,8 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend import audit, idempotency
-from backend.auth import Principal, require_faculty_or_admin
-from backend.auth.dependencies import faculty_or_admin_scope
+from backend.auth import Principal, classroom_faculty_scope, current_user
 from backend.classrooms import roster_with_users
 from backend.data_access import FacultyScope
 from backend.db import get_session
@@ -78,8 +77,8 @@ def _scoped_select(principal: Principal, scope: FacultyScope, model):
 async def submissions(
     classroom_id: str,
     status_filter: str | None = Query(default=None, alias="status"),
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """All submissions in a classroom with pass/fail/escalated status."""
@@ -132,8 +131,8 @@ async def submissions(
 async def escalations(
     classroom_id: str,
     unresolved_only: bool = Query(default=True),
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """The Tier 3 review queue -- the cases needing a human during the pilot."""
@@ -191,8 +190,8 @@ async def escalations(
 async def resolve_escalation(
     escalation_id: str,
     body: ResolveRequest,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     if principal.is_admin:
@@ -216,8 +215,8 @@ async def resolve_escalation(
 async def audit_log(
     event: str | None = Query(default=None),
     limit: int = Query(default=200, le=1000),
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Diagnoses, escalations and auth failures, newest first.
@@ -262,8 +261,8 @@ async def generate_summaries(
     classroom_id: str,
     class_session_id: str,
     body: GenerateSummariesRequest,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Manual (re)generation for a specific class session. Ending a class
@@ -320,8 +319,8 @@ async def generate_summaries(
 @router.get("/summaries/jobs/{job_id}")
 async def summary_job_status(
     job_id: str,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Progress for the visible status indicator."""
@@ -341,8 +340,8 @@ async def summary_job_status(
 @router.get("/classrooms/{classroom_id}/sessions")
 async def list_class_sessions(
     classroom_id: str,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Every class meeting (ended or active) for this classroom, newest
@@ -378,8 +377,8 @@ async def list_class_sessions(
 async def list_summaries(
     classroom_id: str,
     class_session_id: str,
-    principal: Principal = Depends(require_faculty_or_admin),
-    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Faculty/admin-visible only. No student route returns these."""

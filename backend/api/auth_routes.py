@@ -32,10 +32,15 @@ def _profile_complete(role: Role, reg_no: str | None) -> bool:
 
 
 def _me_payload(user: User, principal: Principal) -> dict:
+    # `user.name`/`user.reg_no`, not `principal.name` -- the Principal is
+    # built once when the `current_user` dependency resolves, before this
+    # request's own handler (e.g. complete_profile) may have just mutated
+    # the row; re-reading straight from `user` here always reflects the
+    # write this same request just made.
     return {
         "id": principal.id,
         "email": principal.email,
-        "name": principal.name,
+        "name": user.name,
         "role": principal.role.value,
         "reg_no": user.reg_no,
         "profile_complete": _profile_complete(principal.role, user.reg_no),
