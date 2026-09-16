@@ -31,7 +31,9 @@ function StudentLab() {
     loadClassrooms().catch((e) => setError(String(e.message ?? e)));
   }, [loadClassrooms]);
 
-  if (classrooms === null) return <p className="muted">Loading…</p>;
+  if (classrooms === null) {
+    return error ? <div className="error">{error}</div> : <p className="muted">Loading…</p>;
+  }
 
   return (
     <>

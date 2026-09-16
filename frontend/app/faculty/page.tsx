@@ -34,7 +34,9 @@ function Sections() {
     load().catch((e) => setError(String(e.message ?? e)));
   }, [load]);
 
-  if (classrooms === null) return <p className="muted">Loading…</p>;
+  if (classrooms === null) {
+    return error ? <div className="error">{error}</div> : <p className="muted">Loading…</p>;
+  }
 
   const notReady = experiments.filter((e) => !e.ready);
 

@@ -107,7 +107,10 @@ function Dashboard({ classroomId }: { classroomId: string }) {
     <>
       <h1>Section dashboard</h1>
       <p className="muted">
-        <a href="/faculty">← all sections</a>
+        {/* "/" rather than "/faculty" -- a promoted co-faculty (platform
+            role student) can reach this dashboard but not the faculty-only
+            "/faculty" listing; "/" routes correctly for every role. */}
+        <a href="/">← home</a>
       </p>
 
       {error && <div className="error">{error}</div>}
