@@ -32,6 +32,7 @@ from backend.models import (
     User,
 )
 from backend.summaries import run_job, start_job_for_session
+from backend.summaries.coverage import compute_topic_coverage
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -408,3 +409,43 @@ async def list_summaries(
             for s in sorted(rows, key=lambda s: emails.get(s.student_id, ""))
         ]
     }
+
+
+@router.get("/classrooms/{classroom_id}/students/{student_id}/coverage")
+async def student_coverage(
+    classroom_id: str,
+    student_id: str,
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Rough, deterministic per-experiment engagement indicator -- NOT a
+    grade, never LLM-produced (see backend/summaries/coverage.py)."""
+    await _classroom_or_404(db, principal, scope, classroom_id)
+    rows = await compute_topic_coverage(db, classroom_id, student_id)
+    return {"student_id": student_id, "topics": [r.as_dict() for r in rows]}
+
+
+@router.get("/classrooms/{classroom_id}/coverage")
+async def classroom_coverage(
+    classroom_id: str,
+    principal: Principal = Depends(current_user),
+    scope: FacultyScope = Depends(classroom_faculty_scope),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Whole-class rollup: one row per (student, experiment) with any
+    recorded activity."""
+    classroom = await _classroom_or_404(db, principal, scope, classroom_id)
+    roster = await roster_with_users(db, classroom.id)
+    out = []
+    for _membership, user in roster:
+        rows = await compute_topic_coverage(db, classroom_id, user.id)
+        out.append(
+            {
+                "student_id": user.id,
+                "student_email": user.email,
+                "student_name": user.name,
+                "topics": [r.as_dict() for r in rows],
+            }
+        )
+    return {"students": out}
