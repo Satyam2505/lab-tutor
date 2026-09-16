@@ -2,13 +2,18 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { ActionButton } from "@/components/ActionButton";
+import { QaChat } from "@/components/QaChat";
 import { Shell } from "@/components/Shell";
+import { SocraticPanel } from "@/components/SocraticPanel";
+import { SubmitPanel } from "@/components/SubmitPanel";
 import {
   ApiError,
   api,
   newIdempotencyKey,
+  type ClassSessionInfo,
   type DashboardSubmission,
   type Escalation,
+  type Experiment,
   type StudentSummary,
   type SummaryJob,
 } from "@/lib/api";
@@ -20,14 +25,25 @@ export default function ClassroomDashboardPage({
 }) {
   const { classroomId } = use(params);
   return (
-    <Shell requireRole="faculty">{() => <Dashboard classroomId={classroomId} />}</Shell>
+    <Shell requireRole={["faculty", "admin"]}>
+      {() => <Dashboard classroomId={classroomId} />}
+    </Shell>
   );
 }
 
-type Tab = "submissions" | "escalations" | "summaries";
+type Tab = "ask" | "socratic" | "diagnostic" | "submissions" | "escalations" | "summaries";
+
+const TAB_LABEL: Record<Tab, string> = {
+  ask: "Ask",
+  socratic: "Socratic testing",
+  diagnostic: "Diagnostic testing",
+  submissions: "Submissions",
+  escalations: "Review queue",
+  summaries: "Summaries",
+};
 
 function Dashboard({ classroomId }: { classroomId: string }) {
-  const [tab, setTab] = useState<Tab>("submissions");
+  const [tab, setTab] = useState<Tab>("ask");
   const [error, setError] = useState("");
 
   return (
@@ -39,19 +55,24 @@ function Dashboard({ classroomId }: { classroomId: string }) {
 
       {error && <div className="error">{error}</div>}
 
-      <div className="row" style={{ marginBottom: 14 }}>
-        {(["submissions", "escalations", "summaries"] as Tab[]).map((t) => (
+      <div className="row" style={{ marginBottom: 14, flexWrap: "wrap" }}>
+        {(
+          ["ask", "socratic", "diagnostic", "submissions", "escalations", "summaries"] as Tab[]
+        ).map((t) => (
           <button
             key={t}
             type="button"
             className={`btn ${tab === t ? "btn-primary" : "btn-secondary"}`}
             onClick={() => setTab(t)}
           >
-            {t === "escalations" ? "Review queue" : t[0].toUpperCase() + t.slice(1)}
+            {TAB_LABEL[t]}
           </button>
         ))}
       </div>
 
+      {tab === "ask" && <QaChat classroomId={classroomId} />}
+      {tab === "socratic" && <ExperimentTest classroomId={classroomId} mode="socratic" />}
+      {tab === "diagnostic" && <ExperimentTest classroomId={classroomId} mode="diagnostic" />}
       {tab === "submissions" && (
         <Submissions classroomId={classroomId} onError={setError} />
       )}
@@ -60,6 +81,74 @@ function Dashboard({ classroomId }: { classroomId: string }) {
       )}
       {tab === "summaries" && (
         <Summaries classroomId={classroomId} onError={setError} />
+      )}
+    </>
+  );
+}
+
+/**
+ * Faculty/admin exercise the exact same Socratic/diagnostic engines a
+ * student would, against an explicitly chosen experiment rather than
+ * the classroom's active session (see `backend/api/socratic_routes.py`
+ * and `diagnostic_routes.py`'s `experiment_id` override for non-student
+ * callers). Every session/submission this produces is stamped
+ * `FACULTY_TEST`/`ADMIN_TEST` server-side and is structurally excluded
+ * from student analytics and summaries -- see `backend/models.py`'s
+ * `ActorType` and `backend/summaries/jobs.py`.
+ */
+function ExperimentTest({
+  classroomId,
+  mode,
+}: {
+  classroomId: string;
+  mode: "socratic" | "diagnostic";
+}) {
+  const [experiments, setExperiments] = useState<Experiment[] | null>(null);
+  const [experimentId, setExperimentId] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api
+      .get<{ experiments: Experiment[] }>("/api/classrooms/experiments")
+      .then((d) => {
+        setExperiments(d.experiments);
+        setExperimentId((current) => current || d.experiments.find((e) => e.ready)?.id || "");
+      })
+      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+  }, []);
+
+  return (
+    <>
+      <p className="muted">
+        Faculty/admin testing runs the same engine a student would see, on
+        a chosen experiment -- never counted as student activity or fed
+        into any summary.
+      </p>
+      {error && <div className="error">{error}</div>}
+      <div className="card">
+        <label>
+          <span>Experiment to test</span>
+          <select value={experimentId} onChange={(e) => setExperimentId(e.target.value)}>
+            <option value="">— choose —</option>
+            {(experiments ?? []).map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.id} — {e.title}
+                {e.ready ? "" : " (not configured)"}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {experimentId && mode === "socratic" && (
+        <SocraticPanel classroomId={classroomId} experimentId={experimentId} />
+      )}
+      {experimentId && mode === "diagnostic" && (
+        <SubmitPanel
+          classroomId={classroomId}
+          experimentId={experimentId}
+          title="Test a diagnostic submission"
+        />
       )}
     </>
   );
@@ -225,18 +314,37 @@ function Summaries({
   classroomId: string;
   onError: (m: string) => void;
 }) {
+  const [sessions, setSessions] = useState<ClassSessionInfo[] | null>(null);
+  const [sessionId, setSessionId] = useState("");
   const [rows, setRows] = useState<StudentSummary[] | null>(null);
   const [job, setJob] = useState<SummaryJob | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  useEffect(() => {
+    api
+      .get<{ sessions: ClassSessionInfo[] }>(
+        `/api/dashboard/classrooms/${classroomId}/sessions`,
+      )
+      .then((d) => {
+        setSessions(d.sessions);
+        setSessionId((current) => current || d.sessions[0]?.id || "");
+      })
+      .catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+  }, [classroomId, onError]);
+
   const load = useCallback(async () => {
+    if (!sessionId) {
+      setRows([]);
+      return;
+    }
     const d = await api.get<{ summaries: StudentSummary[] }>(
-      `/api/dashboard/classrooms/${classroomId}/summaries`,
+      `/api/dashboard/classrooms/${classroomId}/sessions/${sessionId}/summaries`,
     );
     setRows(d.summaries);
-  }, [classroomId]);
+  }, [classroomId, sessionId]);
 
   useEffect(() => {
+    setRows(null);
     load().catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
   }, [load, onError]);
 
@@ -274,13 +382,25 @@ function Summaries({
       </p>
 
       <div className="card">
+        <label style={{ maxWidth: 360 }}>
+          <span>Class session</span>
+          <select value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
+            {(sessions ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.experiment_id} — {new Date(s.started_at).toLocaleString()}
+                {s.status === "active" ? " (active)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <ActionButton
-          disabled={running}
+          disabled={running || !sessionId}
           pendingLabel="Starting…"
           onAction={async () => {
             try {
               const started = await api.post<SummaryJob>(
-                `/api/dashboard/classrooms/${classroomId}/summaries`,
+                `/api/dashboard/classrooms/${classroomId}/sessions/${sessionId}/summaries`,
                 { refresh_student_ids: [], idempotency_key: newIdempotencyKey() },
               );
               setJob({ ...started, completed: 0, skipped: 0, error: null });

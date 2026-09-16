@@ -32,11 +32,18 @@ def domain_of(email: str) -> str:
 def role_for_email(email: str, settings: Settings | None = None) -> Role:
     """Map a verified email to a role, or refuse.
 
-    Faculty is checked first: if a deployment ever configures overlapping
-    lists, the more privileged reading must not be reachable by accident,
-    so the overlap is resolved explicitly here rather than by list order.
+    Admin is checked FIRST, against a platform-wide allowlist -- admin is
+    not a domain-derived role and does not require joining a classroom. If
+    the email isn't an admin, faculty is checked next: if a deployment
+    ever configures overlapping lists, the more privileged reading must
+    not be reachable by accident, so the overlap is resolved explicitly
+    here rather than by list order.
     """
     settings = settings or get_settings()
+    normalised = (email or "").strip().lower()
+    if normalised and normalised in settings.admin_emails:
+        return Role.ADMIN
+
     domain = domain_of(email)
     if not domain:
         raise DomainNotPermitted(email or "(empty)")

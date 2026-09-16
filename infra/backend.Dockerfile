@@ -12,6 +12,10 @@ COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 COPY backend /app/backend
+# alembic.ini lives at the repo root, not under backend/ -- without this
+# line `alembic upgrade head` inside the container has no config file at
+# all (backend/migrations/env.py's script_location is relative to it).
+COPY alembic.ini /app/alembic.ini
 
 # Runs unprivileged. The manual PDF is mounted read-only at /app/manual.
 RUN useradd --create-home --uid 10001 labtutor \
@@ -24,7 +28,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status==200 else 1)"
 
-# Workers sized for ~70 concurrent students on one container. Most request
-# time is spent awaiting the inference backend, so the async workers stay
-# responsive; raise this only alongside the database pool in backend/db.py.
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Migrations run once, on container start, before the app takes traffic --
+# `backend.main`'s startup deliberately does NOT call create_all() in
+# production (see its lifespan()), so this is the only thing that builds
+# or updates the schema there. Workers sized for ~70 concurrent students on
+# one container; raise this only alongside the database pool in
+# backend/db.py.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 2"]

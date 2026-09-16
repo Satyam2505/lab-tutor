@@ -88,5 +88,15 @@ def check_submission(user_id: str) -> LimitDecision:
     )
 
 
+def check_qa_turn(user_id: str) -> LimitDecision:
+    settings = get_settings()
+    return _limiter.check(
+        "qa",
+        user_id,
+        limit=settings.ratelimit_qa_per_minute,
+        window_seconds=60.0,
+    )
+
+
 def reset_for_tests() -> None:
     _limiter.reset()

@@ -18,5 +18,13 @@
     "exp03": 115,
     "exp08": 115
   },
-  "baseline_per_unknown_experiment": 18
+  "baseline_experiments": [
+    "exp01",
+    "exp04",
+    "exp05",
+    "exp06",
+    "exp09",
+    "exp10"
+  ],
+  "baseline_target_per_experiment": 18
 }

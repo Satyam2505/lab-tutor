@@ -1,4 +1,10 @@
-"""Diagnostic-mode routes: submit a finished record, get a diagnosis back."""
+"""Diagnostic-mode routes: submit a finished record, get a diagnosis back.
+
+Faculty and admin may also submit test records here (brief §12), through
+the exact same Tier1/2/3 pipeline -- never a parallel implementation.
+Every submission is stamped with `actor_type` so a demonstrator's test
+submission can never be mistaken for a real student's.
+"""
 
 from __future__ import annotations
 
@@ -7,17 +13,16 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend import audit, idempotency, ratelimit
-from backend.auth import Principal, require_student
-from backend.auth.dependencies import student_scope
-from backend.data_access import StudentScope
+from backend import classrooms as classroom_service
+from backend.auth import Principal, current_user
+from backend.data_access import FacultyScope, StudentScope
 from backend.db import get_session
 from backend.extraction import extract_submission
 from backend.models import (
-    Classroom,
+    ActorType,
     Diagnosis,
     DiagnosisStatus,
     Escalation,
@@ -33,22 +38,34 @@ router = APIRouter(prefix="/api/submissions", tags=["diagnostic"])
 
 class SubmissionRequest(BaseModel):
     classroom_id: str
-    #: Raw form fields. The experiment is NOT taken from here -- it comes
-    #: from the classroom's active experiment, so a student cannot submit
-    #: against a different one.
+    #: Raw form fields. For a real student submission the experiment is
+    #: NOT taken from here -- it comes from the classroom's active class
+    #: session, so a student cannot submit against a different one.
+    #: Faculty/admin test submissions may set this explicitly when there
+    #: is no active session to reproduce against.
+    experiment_id: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
     reported_value: Any = None
     remarks: str = ""
     idempotency_key: str | None = Field(default=None, max_length=128)
 
 
+def _actor_type_for(principal: Principal) -> ActorType:
+    if principal.is_faculty:
+        return ActorType.FACULTY_TEST
+    if principal.is_admin:
+        return ActorType.ADMIN_TEST
+    return ActorType.STUDENT
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def submit(
     body: SubmissionRequest,
-    principal: Principal = Depends(require_student),
-    scope: StudentScope = Depends(student_scope),
+    principal: Principal = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
+    actor_type = _actor_type_for(principal)
+
     limit = ratelimit.check_submission(principal.id)
     if not limit.allowed:
         await audit.record(
@@ -61,20 +78,35 @@ async def submit(
             headers={"Retry-After": str(int(limit.retry_after_seconds) + 1)},
         )
 
-    if not await scope.is_enrolled(body.classroom_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
-        )
-
-    classroom = (
-        await db.scalars(select(Classroom).where(Classroom.id == body.classroom_id))
-    ).first()
-    if classroom is None or not classroom.active_experiment_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No active experiment is set for this classroom yet.",
-        )
-    experiment_id = classroom.active_experiment_id
+    class_session_id: str | None = None
+    if actor_type is ActorType.STUDENT:
+        scope = StudentScope(db, principal.id)
+        if not await scope.is_enrolled(body.classroom_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
+            )
+        active = await classroom_service.get_active_session(db, body.classroom_id)
+        if active is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No active class session is set for this classroom yet.",
+            )
+        experiment_id = active.experiment_id
+        class_session_id = active.id
+    else:
+        fscope = FacultyScope(db, principal.id)
+        if not (principal.is_admin or await fscope.is_member(body.classroom_id)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
+            )
+        active = await classroom_service.get_active_session(db, body.classroom_id)
+        experiment_id = body.experiment_id or (active.experiment_id if active else None)
+        if not experiment_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No active class session; name experiment_id explicitly for a test submission.",
+            )
+        class_session_id = active.id if (active and active.experiment_id == experiment_id) else None
 
     try:
         plugin = get_plugin(experiment_id)
@@ -84,7 +116,7 @@ async def submit(
         ) from exc
 
     key = body.idempotency_key or idempotency.derive_key(
-        "submit", body.classroom_id, experiment_id, sorted(body.data.items()),
+        "submit", principal.id, body.classroom_id, experiment_id, sorted(body.data.items()),
         body.reported_value,
     )
     try:
@@ -114,8 +146,8 @@ async def submit(
     extracted = extract_submission(
         body.data, numeric_fields=numeric_keys, series_fields=series_keys
     )
-    for key in structured_keys:
-        extracted.values[key] = body.data[key]
+    for skey in structured_keys:
+        extracted.values[skey] = body.data[skey]
 
     reported: float | None = None
     if body.reported_value is not None:
@@ -129,7 +161,9 @@ async def submit(
     submission = Submission(
         student_id=principal.id,
         classroom_id=body.classroom_id,
+        class_session_id=class_session_id,
         experiment_id=experiment_id,
+        actor_type=actor_type,
         raw_payload={"data": body.data, "reported_value": body.reported_value,
                      "remarks": body.remarks},
         reported_value=reported,
@@ -142,6 +176,7 @@ async def submit(
             submission_id=submission.id,
             student_id=principal.id,
             classroom_id=body.classroom_id,
+            class_session_id=class_session_id,
             status=DiagnosisStatus.INVALID,
             tier=1,
             reported_value=reported,
@@ -176,6 +211,7 @@ async def submit(
         submission_id=submission.id,
         student_id=principal.id,
         classroom_id=body.classroom_id,
+        class_session_id=class_session_id,
         status=outcome.status,
         tier=outcome.tier,
         signature_code=outcome.signature_code,
@@ -190,18 +226,21 @@ async def submit(
     db.add(diagnosis)
     await db.flush()
 
-    # Anything that tells the student to wait for a demonstrator must
+    # Anything that tells the caller to wait for a demonstrator must
     # actually reach one. That includes a Tier 3 abstention and also a
     # determinate finding whose remedy is review -- a violated conformer
     # ordering on Experiments 7/8 is a FAIL, not an escalation, but its
     # action is await_review, and a student told to wait for someone who
-    # never sees the case is worse than no diagnosis at all.
+    # never sees the case is worse than no diagnosis at all. Faculty/admin
+    # test submissions still escalate the same way, so the tester sees
+    # exactly what a student would trigger.
     needs_human = outcome.escalated or outcome.action is RemedialAction.AWAIT_REVIEW
     if needs_human:
         db.add(
             Escalation(
                 diagnosis_id=diagnosis.id,
                 classroom_id=body.classroom_id,
+                class_session_id=class_session_id,
                 student_id=principal.id,
                 reason=outcome.escalate_reason
                 or (
@@ -213,18 +252,21 @@ async def submit(
         await audit.record(
             db, audit.TIER3_ESCALATION, user_id=principal.id,
             classroom_id=body.classroom_id,
+            class_session_id=class_session_id,
             detail={"experiment": experiment_id, "reason": outcome.escalate_reason},
         )
 
     await audit.record(
         db, audit.DIAGNOSIS_MADE, user_id=principal.id,
         classroom_id=body.classroom_id,
+        class_session_id=class_session_id,
         detail={
             "experiment": experiment_id,
             "status": outcome.status.value,
             "tier": outcome.tier,
             "signature": outcome.signature_code,
             "phrasing_source": outcome.phrasing_source,
+            "actor_type": actor_type.value,
         },
     )
 
@@ -237,7 +279,7 @@ async def submit(
 def _diagnosis_payload(
     submission: Submission, diagnosis: Diagnosis, citation: str = ""
 ) -> dict:
-    """What a student sees. Never includes another student's anything."""
+    """What a caller sees. Never includes another student's anything."""
     return {
         "submission_id": submission.id,
         "experiment_id": submission.experiment_id,
@@ -252,9 +294,10 @@ def _diagnosis_payload(
 
 @router.get("/mine")
 async def my_submissions(
-    scope: StudentScope = Depends(student_scope),
+    principal: Principal = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
+    scope = StudentScope(db, principal.id)
     submissions = await scope.all(Submission)
     diagnoses = {d.submission_id: d for d in await scope.all(Diagnosis)}
     return {
@@ -278,13 +321,15 @@ async def my_submissions(
 @router.get("/{submission_id}")
 async def get_submission(
     submission_id: str,
-    scope: StudentScope = Depends(student_scope),
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Scoped fetch.
 
-    Another student's id returns 404 because the row is never selected --
-    the owner predicate is part of the query, not a check afterwards.
+    Another user's id returns 404 because the row is never selected -- the
+    owner predicate is part of the query, not a check afterwards.
     """
+    scope = StudentScope(db, principal.id)
     submission = await scope.get(Submission, submission_id)
     if submission is None:
         raise HTTPException(

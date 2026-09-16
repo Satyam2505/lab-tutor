@@ -1,29 +1,30 @@
-"""Professor/TA dashboard routes.
+"""Faculty/admin dashboard routes.
 
-Minimal by intent -- a working internal tool for the pilot, not a
-polished product. Every route is faculty-gated *and* ownership-scoped:
-`FacultyScope` restricts each query to classrooms this account owns, so
-one section's staff cannot read another's.
+Every route is faculty-or-admin-gated. Faculty routes are additionally
+membership-scoped: `FacultyScope` restricts each query to classrooms this
+account is an active FACULTY member of, so one section's staff cannot
+read another's. Admin bypasses membership scoping (global authority) but
+never bypasses the role check itself.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend import audit, idempotency
-from backend.auth import Principal, require_faculty
-from backend.auth.dependencies import faculty_scope
+from backend.auth import Principal, require_faculty_or_admin
+from backend.auth.dependencies import faculty_or_admin_scope
 from backend.classrooms import roster_with_users
-from backend.config import get_settings
 from backend.data_access import FacultyScope
 from backend.db import get_session
 from backend.models import (
     AuditLog,
+    ClassSession,
     Diagnosis,
     Escalation,
     StudentSummary,
@@ -31,7 +32,7 @@ from backend.models import (
     SummaryJob,
     User,
 )
-from backend.summaries import run_job, start_job
+from backend.summaries import run_job, start_job_for_session
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -39,7 +40,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 class GenerateSummariesRequest(BaseModel):
     #: Named students to regenerate. Empty means "only those not yet done",
-    #: which is what makes re-clicking the button free.
+    #: which is what makes re-triggering free.
     refresh_student_ids: list[str] = Field(default_factory=list)
     idempotency_key: str | None = Field(default=None, max_length=128)
 
@@ -48,29 +49,52 @@ class ResolveRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
 
 
-async def _owned(scope: FacultyScope, classroom_id: str) -> None:
-    if not await scope.owns_classroom(classroom_id):
+async def _classroom_or_404(
+    db: AsyncSession, principal: Principal, scope: FacultyScope, classroom_id: str
+):
+    from backend.models import Classroom
+
+    if principal.is_admin:
+        classroom = (
+            await db.scalars(select(Classroom).where(Classroom.id == classroom_id))
+        ).first()
+    else:
+        classroom = await scope.get_classroom(classroom_id)
+    if classroom is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
         )
+    return classroom
+
+
+def _scoped_select(principal: Principal, scope: FacultyScope, model):
+    """Admin sees everything; faculty only their own classrooms' rows."""
+    if principal.is_admin:
+        return select(model)
+    return scope.select(model)
 
 
 @router.get("/classrooms/{classroom_id}/submissions")
 async def submissions(
     classroom_id: str,
     status_filter: str | None = Query(default=None, alias="status"),
-    scope: FacultyScope = Depends(faculty_scope),
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """All submissions in a classroom with pass/fail/escalated status."""
-    await _owned(scope, classroom_id)
+    await _classroom_or_404(db, principal, scope, classroom_id)
 
-    stmt = scope.select(Submission).where(Submission.classroom_id == classroom_id)
+    stmt = _scoped_select(principal, scope, Submission).where(
+        Submission.classroom_id == classroom_id
+    )
     rows = list((await db.scalars(stmt)).all())
     diag_rows = list(
         (
             await db.scalars(
-                scope.select(Diagnosis).where(Diagnosis.classroom_id == classroom_id)
+                _scoped_select(principal, scope, Diagnosis).where(
+                    Diagnosis.classroom_id == classroom_id
+                )
             )
         ).all()
     )
@@ -88,6 +112,7 @@ async def submissions(
             "student_id": submission.student_id,
             "student_email": emails.get(submission.student_id, ""),
             "experiment_id": submission.experiment_id,
+            "actor_type": submission.actor_type.value,
             "created_at": submission.created_at.isoformat(),
             "status": diagnosis.status.value if diagnosis else "pending",
             "tier": diagnosis.tier if diagnosis else None,
@@ -107,12 +132,15 @@ async def submissions(
 async def escalations(
     classroom_id: str,
     unresolved_only: bool = Query(default=True),
-    scope: FacultyScope = Depends(faculty_scope),
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """The Tier 3 review queue -- the cases needing a human during the pilot."""
-    await _owned(scope, classroom_id)
-    stmt = scope.select(Escalation).where(Escalation.classroom_id == classroom_id)
+    await _classroom_or_404(db, principal, scope, classroom_id)
+    stmt = _scoped_select(principal, scope, Escalation).where(
+        Escalation.classroom_id == classroom_id
+    )
     if unresolved_only:
         stmt = stmt.where(Escalation.resolved.is_(False))
     rows = list((await db.scalars(stmt)).all())
@@ -121,7 +149,9 @@ async def escalations(
         d.id: d
         for d in (
             await db.scalars(
-                scope.select(Diagnosis).where(Diagnosis.classroom_id == classroom_id)
+                _scoped_select(principal, scope, Diagnosis).where(
+                    Diagnosis.classroom_id == classroom_id
+                )
             )
         ).all()
     }
@@ -161,11 +191,16 @@ async def escalations(
 async def resolve_escalation(
     escalation_id: str,
     body: ResolveRequest,
-    principal: Principal = Depends(require_faculty),
-    scope: FacultyScope = Depends(faculty_scope),
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    escalation = await scope.get(Escalation, escalation_id)
+    if principal.is_admin:
+        escalation = (
+            await db.scalars(select(Escalation).where(Escalation.id == escalation_id))
+        ).first()
+    else:
+        escalation = await scope.get(Escalation, escalation_id)
     if escalation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Escalation not found"
@@ -181,13 +216,27 @@ async def resolve_escalation(
 async def audit_log(
     event: str | None = Query(default=None),
     limit: int = Query(default=200, le=1000),
-    principal: Principal = Depends(require_faculty),
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Diagnoses, escalations and auth failures, newest first."""
+    """Diagnoses, escalations and auth failures, newest first.
+
+    Scoped: a faculty account sees only events tagged with a classroom_id
+    it belongs to, plus its own account-level events (classroom_id null,
+    e.g. its own auth failures). Only admin sees every classroom's events.
+    Previously this route had no ownership predicate at all -- a
+    cross-classroom information leak, fixed here.
+    """
     stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
     if event:
         stmt = stmt.where(AuditLog.event == event)
+    if not principal.is_admin:
+        member_ids = list((await db.scalars(scope._member_classroom_ids())).all())
+        stmt = stmt.where(
+            (AuditLog.classroom_id.in_(member_ids))
+            | (AuditLog.classroom_id.is_(None) & (AuditLog.user_id == principal.id))
+        )
     rows = list((await db.scalars(stmt)).all())
     return {
         "events": [
@@ -196,6 +245,7 @@ async def audit_log(
                 "event": r.event,
                 "user_id": r.user_id,
                 "classroom_id": r.classroom_id,
+                "class_session_id": r.class_session_id,
                 "detail": r.detail,
                 "created_at": r.created_at.isoformat(),
             }
@@ -204,30 +254,33 @@ async def audit_log(
     }
 
 
-@router.post("/classrooms/{classroom_id}/summaries", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/classrooms/{classroom_id}/sessions/{class_session_id}/summaries",
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def generate_summaries(
     classroom_id: str,
+    class_session_id: str,
     body: GenerateSummariesRequest,
-    background: BackgroundTasks,
-    principal: Principal = Depends(require_faculty),
-    scope: FacultyScope = Depends(faculty_scope),
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Start the async summary job. Returns immediately with a job id."""
-    classroom = await scope.get_classroom(classroom_id)
-    if classroom is None:
+    """Manual (re)generation for a specific class session. Ending a class
+    already triggers this automatically (see classroom_routes.py) -- this
+    route exists for backfill/refresh, not as a required extra click.
+    """
+    await _classroom_or_404(db, principal, scope, classroom_id)
+    session_row = (
+        await db.scalars(select(ClassSession).where(ClassSession.id == class_session_id))
+    ).first()
+    if session_row is None or session_row.classroom_id != classroom_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Classroom not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Class session not found"
         )
-    if not classroom.active_experiment_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Set the active experiment before generating summaries.",
-        )
-    experiment_id = classroom.active_experiment_id
 
     key = body.idempotency_key or idempotency.derive_key(
-        "summaries", classroom_id, experiment_id, sorted(body.refresh_student_ids)
+        "summaries", class_session_id, sorted(body.refresh_student_ids)
     )
     try:
         claim = await idempotency.claim(
@@ -241,16 +294,14 @@ async def generate_summaries(
     roster = await roster_with_users(db, classroom_id)
     student_ids = [user.id for _, user in roster]
 
-    # An explicit refresh is the only thing that deletes existing summaries.
     if body.refresh_student_ids:
-        await scope.purge_summaries(
-            classroom_id, experiment_id, body.refresh_student_ids
-        )
+        await scope.purge_summaries(class_session_id, body.refresh_student_ids)
 
-    job = await start_job(
+    job = await start_job_for_session(
         db,
+        class_session_id=class_session_id,
         classroom_id=classroom_id,
-        experiment_id=experiment_id,
+        experiment_id=session_row.experiment_id,
         requested_by=principal.id,
         student_ids=student_ids,
     )
@@ -258,21 +309,24 @@ async def generate_summaries(
     await idempotency.complete(db, claim, payload)
     await db.commit()
 
-    background.add_task(
-        run_job, job.id, student_ids, workers=get_settings().summary_workers
-    )
+    import asyncio
+
+    from backend.config import get_settings
+
+    asyncio.create_task(run_job(job.id, student_ids, workers=get_settings().summary_workers))
     return payload
 
 
 @router.get("/summaries/jobs/{job_id}")
 async def summary_job_status(
     job_id: str,
-    scope: FacultyScope = Depends(faculty_scope),
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Progress for the visible status indicator."""
     job = (await db.scalars(select(SummaryJob).where(SummaryJob.id == job_id))).first()
-    if job is None or not await scope.owns_classroom(job.classroom_id):
+    if job is None or not (principal.is_admin or await scope.is_member(job.classroom_id)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return {
         "job_id": job.id,
@@ -284,19 +338,58 @@ async def summary_job_status(
     }
 
 
-@router.get("/classrooms/{classroom_id}/summaries")
-async def list_summaries(
+@router.get("/classrooms/{classroom_id}/sessions")
+async def list_class_sessions(
     classroom_id: str,
-    scope: FacultyScope = Depends(faculty_scope),
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Professor-visible only. No student route returns these."""
-    await _owned(scope, classroom_id)
+    """Every class meeting (ended or active) for this classroom, newest
+    first -- the picker the summaries/history tab needs once a session has
+    ended and `/active-session` no longer names it. There was previously
+    no way for the frontend to discover a past session's id at all.
+    """
+    await _classroom_or_404(db, principal, scope, classroom_id)
     rows = list(
         (
             await db.scalars(
-                scope.select(StudentSummary).where(
-                    StudentSummary.classroom_id == classroom_id
+                select(ClassSession)
+                .where(ClassSession.classroom_id == classroom_id)
+                .order_by(ClassSession.started_at.desc())
+            )
+        ).all()
+    )
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "experiment_id": s.experiment_id,
+                "status": s.status.value,
+                "started_at": s.started_at.isoformat(),
+                "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+            }
+            for s in rows
+        ]
+    }
+
+
+@router.get("/classrooms/{classroom_id}/sessions/{class_session_id}/summaries")
+async def list_summaries(
+    classroom_id: str,
+    class_session_id: str,
+    principal: Principal = Depends(require_faculty_or_admin),
+    scope: FacultyScope = Depends(faculty_or_admin_scope),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Faculty/admin-visible only. No student route returns these."""
+    await _classroom_or_404(db, principal, scope, classroom_id)
+    rows = list(
+        (
+            await db.scalars(
+                select(StudentSummary).where(
+                    StudentSummary.classroom_id == classroom_id,
+                    StudentSummary.class_session_id == class_session_id,
                 )
             )
         ).all()

@@ -4,16 +4,29 @@
   "note": "The authoritative list of everything LabTutor may answer from. Nothing is ingested unless it is declared here, which is what stops material of one tier being mixed into another. 'present: false' means the file is expected but absent from this checkout; ingestion reports it as blocked rather than skipping it silently.",
   "documents": [
     {
-      "document_id": "iachy102_manual_2026_27",
+      "document_id": "iachy102_manual_markdown",
+      "tier": "A",
+      "role": "official_manual",
+      "filename": "manual/IACHY102_manual.md",
+      "title": "IACHY102 Engineering Chemistry Laboratory manual (transcription)",
+      "version": "2026-27.manual_2.260830_133124 (markdown transcription)",
+      "experiments": ["exp01", "exp02", "exp03", "exp04", "exp05", "exp06", "exp07", "exp08", "exp09", "exp10"],
+      "present": true,
+      "visual": false,
+      "notes": "SOURCE OF TRUTH, and what backend/rag/retrieval.py actually ingests (LABTUTOR_MANUAL_PDF defaults to this path). A markdown transcription of the manual, not the PDF binary itself -- no PDF was deposited in this repo (see manual/README.md for why). Authority for experiment numbering, scope, procedures, formulas, calculations, terminology, software workflow, tables, expected relationships and worked examples present in the transcription. Screenshots/figures are NOT present in this transcription (visual: false) -- a question needing the manual's actual page images cannot be answered visually from this document today."
+    },
+    {
+      "document_id": "iachy102_manual_2026_27_pdf",
       "tier": "A",
       "role": "official_manual",
       "filename": "manual/IACHY102-2026-27-manual_2_260830_133124.pdf",
-      "title": "IACHY102 Engineering Chemistry Laboratory manual (2026-27)",
+      "title": "IACHY102 Engineering Chemistry Laboratory manual (2026-27, original PDF)",
       "version": "2026-27.manual_2.260830_133124",
       "experiments": ["exp01", "exp02", "exp03", "exp04", "exp05", "exp06", "exp07", "exp08", "exp09", "exp10"],
       "present": false,
       "visual": true,
-      "notes": "SOURCE OF TRUTH. Authority for experiment numbering, scope, procedures, formulas, calculations, terminology, software workflow, tables, expected relationships, screenshots and worked examples. Not committed: it is department course material and redistribution is their call (see .gitignore). Drop it at this path and re-run ingestion; no code change is needed."
+      "superseded_by": "iachy102_manual_markdown",
+      "notes": "The original PDF this deployment is transcribed from. NOT committed to this repo (department course material; redistribution is their call -- see .gitignore) and NOT what is currently ingested -- iachy102_manual_markdown is. If this PDF is later deposited at this path, ingestion should be extended to prefer it (for visual/figure grounding) while treating iachy102_manual_markdown as a fallback, not the reverse."
     },
     {
       "document_id": "iachy102_manual_legacy_bachy105",
@@ -25,7 +38,7 @@
       "experiments": [],
       "present": false,
       "visual": true,
-      "superseded_by": "iachy102_manual_2026_27",
+      "superseded_by": "iachy102_manual_markdown",
       "notes": "The manual the first two build sessions targeted. Retained in the manifest only so that a stray copy on someone's machine is recognised and REFUSED rather than ingested as current. Ingestion must never index a superseded document."
     },
     {

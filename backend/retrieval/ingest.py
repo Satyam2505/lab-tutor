@@ -165,6 +165,59 @@ _TEXT_EXTENSIONS = (".md", ".markdown", ".txt")
 #: of falling through to the ambiguous vocabulary scan.
 _FILENAME_EXPERIMENT_RE = re.compile(r"^exp(\d{2})[_-]")
 
+#: The manual's own heading format (see `manual/IACHY102_manual.md`):
+#: "## Experiment N — Title (p.X-Y)". Only headings matching
+#: `_EXPERIMENT_HEADING_RE` are indexed as retrievable units -- front
+#: matter (the assessed-experiment-set table) and the closing
+#: worked-example summary table are navigational aids *about* the
+#: manual, not answerable content, and were the concrete cause of a
+#: real live bug: without this split, the whole multi-experiment file
+#: collapsed into one page-1 unit, so that front-matter table (short,
+#: term-dense) consistently outranked the real per-experiment section on
+#: every query, and every citation said "p. 1" regardless of which
+#: experiment was actually asked about. Verified live before this fix
+#: (`answer_question("Nernst equation worked example")` top-ranked the
+#: "## Summary: which experiments..." chunk over Experiment 1's own
+#: section) and after (top-ranks Experiment 1's section at its real
+#: page). Same fix, same reasoning `backend/rag/retrieval.py::
+#: _chunk_markdown` already applies for the older diagnosis-pipeline
+#: retrieval module -- this module never inherited it because the two
+#: packages were built independently (see `backend/retrieval/
+#: __init__.py`'s docstring).
+_MD_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+_EXPERIMENT_HEADING_RE = re.compile(r"^Experiment\s+(\d+)\b")
+_MD_PAGE_RE = re.compile(r"p\.\s*(\d+)")
+
+
+def _split_markdown_by_experiment_heading(
+    text: str,
+) -> list[tuple[int, str, str, str | None]] | None:
+    """Returns one `(start_page, body, heading, exp_hint)` unit per
+    "## Experiment N ..." heading, or `None` if the text has no such
+    heading at all -- the signal to fall back to whole-file-as-one-unit,
+    which is the correct (and unchanged) behaviour for a single-topic
+    adjacent-knowledge file that was never meant to have this structure.
+    """
+    headings = list(_MD_HEADING_RE.finditer(text))
+    matches = [(m, _EXPERIMENT_HEADING_RE.match(m.group(1))) for m in headings]
+    if not any(exp_match for _, exp_match in matches):
+        return None
+
+    units: list[tuple[int, str, str, str | None]] = []
+    for i, (heading_match, exp_match) in enumerate(matches):
+        if exp_match is None:
+            continue
+        start = heading_match.end()
+        end = headings[i + 1].start() if i + 1 < len(headings) else len(text)
+        body = text[start:end].strip()
+        if not body:
+            continue
+        heading_text = heading_match.group(1)
+        page_match = _MD_PAGE_RE.search(heading_text) or _MD_PAGE_RE.search(body[:200])
+        page = int(page_match.group(1)) if page_match else 1
+        units.append((page, body, heading_text, f"exp{int(exp_match.group(1)):02d}"))
+    return units
+
 
 def _extract_units(path: Path) -> list[tuple[int, str, str, str | None]]:
     """Extract `(unit_number, text, section, experiment_hint)` from any
@@ -189,6 +242,9 @@ def _extract_units(path: Path) -> list[tuple[int, str, str, str | None]]:
         text = path.read_text(encoding="utf-8", errors="replace")
         if not text.strip():
             return []
+        by_heading = _split_markdown_by_experiment_heading(text)
+        if by_heading is not None:
+            return by_heading
         return [(1, text, _section_title(path), _filename_experiment_hint(path))]
 
     log.error("Unrecognised source kind for ingestion: %s", path)

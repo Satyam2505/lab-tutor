@@ -139,6 +139,31 @@ def handle_attempt(
             result=result,
         )
 
+    if result.outcome is Outcome.NOT_APPLICABLE:
+        # Experiments 7 and 8 only (registry.ComputationSanityPlugin /
+        # QualitativeOrderingPlugin) -- these method-choice experiments can
+        # never honestly PASS a step, by design (see ARCHITECTURE.md
+        # section 2.1.1). Before this branch existed, `/attempt` could
+        # never advance their step index at all: every attempt fell
+        # through to the hint path below, forever. The deterministic check
+        # (energy ordering / sanity bounds) still runs inside `check_step`
+        # -- this only changes what counts as forward progress for a check
+        # that was never allowed to claim a pass. `all_steps_complete` set
+        # here does NOT enable a numeric reveal: `compute_reveal` for
+        # these two plugins already routes through the qualitative-note/
+        # escalate path, never a computed value, so no new answer is
+        # exposed by advancing.
+        is_last = step_index >= total - 1
+        return StepOutcome(
+            passed=False,
+            step_index=step_index,
+            message=templates.step_acknowledged_text(step_index + 1, total),
+            advanced_to=None if is_last else step_index + 1,
+            all_steps_complete=is_last,
+            result=result,
+            detail={"acknowledged": True},
+        )
+
     level = hint_level_for(attempts_on_step)
     hint = templates.hint_text(level, step.hints)
 

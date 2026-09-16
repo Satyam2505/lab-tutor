@@ -14,9 +14,14 @@ export function Shell({
   requireRole,
   children,
 }: {
-  requireRole?: Me["role"];
+  requireRole?: Me["role"] | Me["role"][];
   children: (me: Me) => React.ReactNode;
 }) {
+  const allowedRoles = requireRole
+    ? Array.isArray(requireRole)
+      ? requireRole
+      : [requireRole]
+    : null;
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "anonymous">("loading");
 
@@ -54,7 +59,7 @@ export function Shell({
     return (
       <main>
         <h1>LabTutor</h1>
-        <p className="muted">BACHY105 — Applied Chemistry Lab</p>
+        <p className="muted">VIT Applied Chemistry Lab assistant</p>
         <div className="card">
           <p>Sign in with your institutional Google account to continue.</p>
           <p className="muted">
@@ -69,13 +74,13 @@ export function Shell({
     );
   }
 
-  if (requireRole && me.role !== requireRole) {
+  if (allowedRoles && !allowedRoles.includes(me.role)) {
     return (
       <main>
         <h1>Not available</h1>
         <p className="muted">
-          This page is for {requireRole === "faculty" ? "staff" : "students"}.
-          You are signed in as {me.email}.
+          This page is for {allowedRoles.join(" or ")}. You are signed in as{" "}
+          {me.email} ({me.role}).
         </p>
         <a className="btn btn-secondary" href="/">
           Go back

@@ -102,6 +102,92 @@ def test_content_type_classification():
     assert ingest._classify_content("This experiment studies reaction rates.") == ContentType.GENERAL
 
 
+MD_SYNTHETIC = """\
+## Assessed experiment set (p.7)
+
+| # | Title |
+|---|---|
+| 1 | Thermodynamics |
+| 2 | Kinetics |
+
+## Experiment 1 — Thermodynamics (p.10-12)
+
+Ecell measured across the Daniell cell; ΔG = -nFEcell.
+
+## Experiment 2 — Kinetics (p.16-19)
+
+Pseudo first order rate constant from the slope of log(Vinf - Vt) vs t.
+
+## Summary: worked examples
+
+| # | Has worked example |
+|---|---|
+| 1 | yes |
+"""
+
+
+class TestMarkdownExperimentHeadingSplit:
+    """Regression coverage for a real live bug found and fixed this
+    session: a multi-experiment markdown manual ingested as ONE page-1
+    unit, so a short front-matter/summary table (dense in generic terms)
+    consistently outranked the real per-experiment section, and every
+    citation said "p. 1" no matter which experiment was actually asked
+    about. Fixed by `_split_markdown_by_experiment_heading`; verified
+    live against `manual/IACHY102_manual.md` before writing this test
+    (Nernst-equation query top-ranked the front-matter summary table
+    before the fix, Experiment 1's own section after)."""
+
+    def test_front_matter_and_summary_tables_are_excluded(self, tmp_path):
+        path = tmp_path / "synthetic_manual.md"
+        path.write_text(MD_SYNTHETIC, encoding="utf-8")
+        report = ingest.ingest_document(
+            _entry(present=True, filename=str(path), role="official_manual")
+        )
+        assert report.status == "ingested"
+        texts = [c.text for c in report.chunks]
+        assert not any("Assessed experiment set" in t for t in texts)
+        assert not any("worked examples" in t.lower() for t in texts)
+
+    def test_each_experiment_heading_gets_its_own_page_and_attribution(self, tmp_path):
+        path = tmp_path / "synthetic_manual.md"
+        path.write_text(MD_SYNTHETIC, encoding="utf-8")
+        report = ingest.ingest_document(
+            _entry(present=True, filename=str(path), role="official_manual")
+        )
+        by_experiment = {c.experiment_id: c for c in report.chunks}
+        assert by_experiment["exp01"].page == 10
+        assert "Ecell" in by_experiment["exp01"].text
+        assert by_experiment["exp02"].page == 16
+        assert "rate constant" in by_experiment["exp02"].text
+
+    def test_single_topic_file_with_no_experiment_heading_is_unaffected(self, tmp_path):
+        """A curated adjacent-knowledge file has no "## Experiment N"
+        structure at all -- must still ingest as one whole-file unit,
+        the pre-existing (correct) behaviour for that source kind."""
+        path = tmp_path / "exp07_orbital_background.md"
+        path.write_text("## Background\n\nGeneral DFT theory notes.\n", encoding="utf-8")
+        report = ingest.ingest_document(
+            _entry(present=True, filename=str(path), role="curated_adjacent")
+        )
+        assert report.status == "ingested"
+        assert report.page_count == 1
+        assert report.chunks[0].page == 1
+
+    def test_live_manual_citations_carry_real_page_numbers_not_page_one(self):
+        """Live check against the actual shipped manual, not a fixture --
+        the exact scenario the bug manifested in."""
+        from backend.retrieval.index import get_index, reset_index_cache
+
+        reset_index_cache()
+        idx = get_index()
+        exp01_chunks = [c for c in idx.chunks if c.experiment_id == "exp01"]
+        assert exp01_chunks, "Experiment 1 should have at least one attributed chunk"
+        assert all(c.page != 1 for c in exp01_chunks), (
+            "Experiment 1's real content starts around p.10-15 in the manual; "
+            "page=1 means the front-matter-collapse bug has regressed"
+        )
+
+
 def test_deterministic_chunk_ids_are_stable_across_calls():
     document = SourceDocument(
         document_id="doc1", tier=SourceTier.OFFICIAL_MANUAL, filename="f.pdf",

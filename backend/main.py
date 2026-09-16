@@ -35,7 +35,18 @@ async def lifespan(app: FastAPI):
             "Generate one with: openssl rand -hex 32"
         )
 
-    await create_all()
+    if settings.env == "production":
+        # Production schema is owned by Alembic (backend/migrations/),
+        # not by this call: `create_all()` would build the tables
+        # directly on a fresh database without ever stamping
+        # `alembic_version`, so the very next `alembic upgrade head`
+        # deploy fails with "table already exists." Run migrations as a
+        # deploy step (`alembic upgrade head`) before starting the app.
+        log.info("Production startup: schema is managed by Alembic migrations, not create_all().")
+    else:
+        # Dev/test convenience: build the schema straight from the
+        # current models so a fresh checkout runs with zero setup steps.
+        await create_all()
 
     total = len(all_plugins())
     ready = len(ready_plugins())

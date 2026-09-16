@@ -281,18 +281,14 @@ class TestFlaggedMessagesReachStaff:
         return {"Cookie": f"{session_cookie.COOKIE_NAME}={token}"}
 
     async def _session_for(self, client, db, make_user):
-        from backend.classrooms import (
-            create_classroom,
-            join_classroom,
-            set_active_experiment,
-        )
+        from backend.classrooms import create_classroom, join_classroom, start_session
 
         student, student_token = await make_user("qa.student@vitstudent.ac.in")
         prof, prof_token = await make_user("qa.prof@vit.ac.in")
-        classroom = await create_classroom(db, owner_id=prof.id, name="QA section")
+        classroom = await create_classroom(db, creator_id=prof.id, name="QA section")
         # exp08 has steps configured (the ordering-check experiment).
-        await set_active_experiment(db, classroom, experiment_id="exp08")
-        await join_classroom(db, student_id=student.id, join_code=classroom.join_code)
+        await start_session(db, classroom.id, experiment_id="exp08", started_by=prof.id)
+        await join_classroom(db, user=student, join_code=classroom.student_join_code)
         await db.commit()
 
         started = await client.post(

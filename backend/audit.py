@@ -36,6 +36,12 @@ RATE_LIMITED = "ratelimit.blocked"
 STUDENT_FLAG = "socratic.student_flag"
 SUMMARY_JOB = "summary.job"
 IDEMPOTENT_REPLAY = "idempotency.replay"
+CLASSROOM_CREATED = "classroom.created"
+MEMBERSHIP_JOINED = "classroom.membership_joined"
+MEMBERSHIP_REMOVED = "classroom.membership_removed"
+JOIN_CODE_REGENERATED = "classroom.join_code_regenerated"
+SESSION_STARTED = "class_session.started"
+SESSION_ENDED = "class_session.ended"
 
 
 async def record(
@@ -44,6 +50,7 @@ async def record(
     *,
     user_id: str | None = None,
     classroom_id: str | None = None,
+    class_session_id: str | None = None,
     detail: dict[str, Any] | None = None,
     commit: bool = False,
 ) -> None:
@@ -53,6 +60,7 @@ async def record(
                 event=event,
                 user_id=user_id,
                 classroom_id=classroom_id,
+                class_session_id=class_session_id,
                 detail=detail or {},
             )
         )

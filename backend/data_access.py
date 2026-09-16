@@ -1,4 +1,5 @@
-"""Scoped data access -- the single place student isolation is enforced.
+"""Scoped data access -- the single place student/faculty isolation is
+enforced.
 
 The rule this module exists to make structural: **a student's data is
 never fetched and then filtered in application code.** The owner
@@ -7,12 +8,16 @@ a forgotten `if row.student_id != me` check cannot leak anything.
 
 Endpoints serving student data must go through `StudentScope`. They must
 not build their own `select(Submission)`; the tests in
-`tests/test_data_isolation.py` cover the boundary, and
-`tests/test_scope_contract.py` asserts that every owned model actually
-carries the column the scope filters on.
+`tests/test_data_isolation.py` cover the boundary.
 
-Faculty access is scoped the same way, one level out: a professor reaches
-student rows only through a classroom they own.
+Faculty access is scoped the same way, one level out: a faculty member
+reaches student rows only through classrooms they hold an active
+`ClassroomMembership(role=FACULTY)` row for -- never through ownership of
+a single classroom column, since any number of faculty are peers on one
+classroom. ADMIN is a platform role, not a classroom membership, and is
+never routed through `FacultyScope`: admin routes query directly and
+enforce nothing but `require_admin`, by design (admin has global
+authority and does not need to join a classroom).
 """
 
 from __future__ import annotations
@@ -26,8 +31,10 @@ from backend.models import (
     Base,
     ChatMessage,
     Classroom,
+    ClassroomMembership,
+    ClassroomRole,
+    ClassSession,
     Diagnosis,
-    Enrollment,
     Escalation,
     SocraticAttempt,
     SocraticSession,
@@ -45,7 +52,6 @@ STUDENT_OWNED_MODELS: tuple[type[Base], ...] = (
     SocraticSession,
     SocraticAttempt,
     ChatMessage,
-    Enrollment,
     StudentSummary,
     Escalation,
 )
@@ -110,19 +116,31 @@ class StudentScope:
         return int((await self._session.scalar(stmt)) or 0)
 
     async def is_enrolled(self, classroom_id: str) -> bool:
-        return await self.count(Enrollment, Enrollment.classroom_id == classroom_id) > 0
+        stmt = select(func.count()).select_from(ClassroomMembership).where(
+            ClassroomMembership.classroom_id == classroom_id,
+            ClassroomMembership.user_id == self._student_id,
+            ClassroomMembership.role == ClassroomRole.STUDENT,
+            ClassroomMembership.active.is_(True),
+        )
+        return int((await self._session.scalar(stmt)) or 0) > 0
 
     async def active_classroom_ids(self) -> list[str]:
-        rows = await self.all(Enrollment)
-        return [r.classroom_id for r in rows]
+        stmt = select(ClassroomMembership.classroom_id).where(
+            ClassroomMembership.user_id == self._student_id,
+            ClassroomMembership.role == ClassroomRole.STUDENT,
+            ClassroomMembership.active.is_(True),
+        )
+        return list((await self._session.scalars(stmt)).all())
 
 
 class FacultyScope:
-    """Scopes faculty reads to classrooms the faculty member owns.
+    """Scopes faculty reads to classrooms the faculty member is an active
+    member of.
 
-    A professor is not granted blanket access to every student row; the
-    ownership predicate on `classrooms.owner_id` is applied in the same
-    query that selects the student data.
+    A faculty member is not granted blanket access to every student row;
+    the membership predicate (`ClassroomMembership(role=FACULTY, active)`)
+    is applied in the same query that selects the student data. Any
+    number of faculty rows may exist for one classroom -- all are peers.
     """
 
     def __init__(self, session: AsyncSession, faculty_id: str) -> None:
@@ -135,27 +153,34 @@ class FacultyScope:
     def faculty_id(self) -> str:
         return self._faculty_id
 
-    def _owned_classroom_ids(self) -> Select[tuple[str]]:
-        return select(Classroom.id).where(Classroom.owner_id == self._faculty_id)
+    def _member_classroom_ids(self) -> Select[tuple[str]]:
+        return select(ClassroomMembership.classroom_id).where(
+            ClassroomMembership.user_id == self._faculty_id,
+            ClassroomMembership.role == ClassroomRole.FACULTY,
+            ClassroomMembership.active.is_(True),
+        )
 
     def select_classrooms(self) -> Select[tuple[Classroom]]:
-        return select(Classroom).where(Classroom.owner_id == self._faculty_id)
+        return select(Classroom).where(Classroom.id.in_(self._member_classroom_ids()))
 
     async def get_classroom(self, classroom_id: str) -> Classroom | None:
         stmt = self.select_classrooms().where(Classroom.id == classroom_id)
         return (await self._session.scalars(stmt)).first()
 
-    async def owns_classroom(self, classroom_id: str) -> bool:
+    async def is_member(self, classroom_id: str) -> bool:
         return await self.get_classroom(classroom_id) is not None
 
+    # Backwards-compatible alias used by earlier single-owner code paths.
+    owns_classroom = is_member
+
     def select(self, model: type[T]) -> Select[tuple[T]]:
-        """A SELECT constrained to classrooms this faculty member owns."""
+        """A SELECT constrained to classrooms this faculty member belongs to."""
         if not hasattr(model, "classroom_id"):
             raise ScopeViolation(
                 f"{model.__name__} has no classroom_id; it cannot be scoped to faculty."
             )
         return select(model).where(
-            model.classroom_id.in_(self._owned_classroom_ids())  # type: ignore[attr-defined]
+            model.classroom_id.in_(self._member_classroom_ids())  # type: ignore[attr-defined]
         )
 
     async def all(self, model: type[T], *criteria: Any) -> list[T]:
@@ -168,21 +193,38 @@ class FacultyScope:
         stmt = self.select(model).where(model.id == obj_id)  # type: ignore[attr-defined]
         return (await self._session.scalars(stmt)).first()
 
-    async def roster(self, classroom_id: str) -> list[Enrollment]:
-        """Empty list for a classroom this faculty member does not own."""
-        if not await self.owns_classroom(classroom_id):
+    async def active_session(self, classroom_id: str) -> ClassSession | None:
+        """The classroom's currently-ACTIVE ClassSession, or None.
+
+        Only meaningful for a classroom this faculty member belongs to --
+        callers must check `is_member`/`get_classroom` first.
+        """
+        from backend.models import SessionStatus
+
+        stmt = select(ClassSession).where(
+            ClassSession.classroom_id == classroom_id,
+            ClassSession.status == SessionStatus.ACTIVE,
+        )
+        return (await self._session.scalars(stmt)).first()
+
+    async def faculty_roster(self, classroom_id: str) -> list[ClassroomMembership]:
+        """Empty list for a classroom this faculty member does not belong to."""
+        if not await self.is_member(classroom_id):
             return []
-        stmt = select(Enrollment).where(Enrollment.classroom_id == classroom_id)
+        stmt = select(ClassroomMembership).where(
+            ClassroomMembership.classroom_id == classroom_id,
+            ClassroomMembership.role == ClassroomRole.FACULTY,
+            ClassroomMembership.active.is_(True),
+        )
         return list((await self._session.scalars(stmt)).all())
 
-    async def purge_summaries(self, classroom_id: str, experiment_id: str, student_ids: list[str]):
-        """Used only by an explicit professor-requested summary refresh."""
-        if not await self.owns_classroom(classroom_id) or not student_ids:
+    async def purge_summaries(self, class_session_id: str, student_ids: list[str]):
+        """Used only by an explicit faculty-requested summary refresh."""
+        if not student_ids:
             return
         await self._session.execute(
             delete(StudentSummary).where(
-                StudentSummary.classroom_id == classroom_id,
-                StudentSummary.experiment_id == experiment_id,
+                StudentSummary.class_session_id == class_session_id,
                 StudentSummary.student_id.in_(student_ids),
             )
         )

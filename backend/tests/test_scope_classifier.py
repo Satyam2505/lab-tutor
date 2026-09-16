@@ -326,11 +326,15 @@ def test_all_ten_experiments_are_declared():
     assert {t.id for t in ontology.all_topics()} == set(ontology.ALL_EXPERIMENT_IDS)
 
 
-def test_only_the_four_briefed_experiments_claim_known_subject_matter():
-    """Guards against someone 'completing' the ontology by inventing
-    titles for the six experiments nobody here has seen."""
+def test_all_ten_experiments_have_manual_sourced_subject_matter():
+    """The IACHY102 manual (manual/IACHY102_manual.md) now covers all ten
+    experiments, so all ten are routable -- vocabulary was taken from the
+    manual's actual per-experiment sections (headings, reagents, named
+    formulas/instruments), never invented. This replaces the old guard
+    that asserted only the four Phase-1-brief experiments were routable,
+    from before the manual existed."""
     routable = {t.id for t in ontology.routable_topics()}
-    assert routable == {"exp02", "exp03", "exp07", "exp08"}
+    assert routable == set(ontology.ALL_EXPERIMENT_IDS)
 
 
 def test_unpopulated_topics_say_so_in_their_title():
@@ -338,8 +342,9 @@ def test_unpopulated_topics_say_so_in_their_title():
         assert "pending" in topic.title.lower()
 
 
-def test_coverage_report_names_the_blocker():
+def test_coverage_report_shows_full_coverage():
     report = ontology.coverage_report()
     assert report["experiments_declared"] == 10
-    assert report["experiments_routable"] == 4
-    assert "IACHY102" in report["blocked_by"]
+    assert report["experiments_routable"] == 10
+    assert report["pending_manual_ids"] == []
+    assert report["blocked_by"] is None

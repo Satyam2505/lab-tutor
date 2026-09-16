@@ -1,21 +1,29 @@
-"""Professor-triggered summary generation, as an async background job.
+"""Summary generation, as an async background job, keyed on class session.
 
 Why a job and not a request: at ~70 students, each needing a sanity check
 and a generation call, a synchronous endpoint would sit well past any
-sensible proxy timeout. The professor gets a job id immediately and polls
-a progress endpoint.
+sensible proxy timeout. The caller gets a job id immediately (or, for the
+automatic end-of-class trigger, nothing to wait on at all) and polls a
+progress endpoint if it wants to.
 
-Three behaviours worth stating plainly:
+Four behaviours worth stating plainly:
 
-* **Idempotent.** Students already summarised for this (classroom,
-  experiment) are skipped, so re-clicking the button costs nothing and
-  bills nothing. A refresh is possible but must name specific students.
+* **Session-scoped identity.** A `StudentSummary` belongs to
+  `(student, class_session)`, not `(student, classroom, experiment)` -- a
+  repeated experiment across two different class meetings produces
+  independent summaries instead of colliding.
+* **Idempotent.** Students already summarised for this class session are
+  skipped, so re-triggering costs nothing and bills nothing. A refresh is
+  possible but must name specific students.
 * **Flagged, never dropped.** A transcript that fails the sanity check is
   written with `flagged=True` and a reason, and still appears in the
-  professor's list. Silently excluding a student would hide exactly the
-  cases most worth looking at.
-* **Professor-visible only.** No student-facing route returns a summary,
-  and none is generated mid-session.
+  faculty list. Silently excluding a student would hide exactly the cases
+  most worth looking at.
+* **Faculty/admin-visible only, student activity only.** No student-facing
+  route returns a summary. The roster fed into a job is students only
+  (never faculty/admin test activity -- see `classrooms.roster_with_users`,
+  which filters to `ClassroomRole.STUDENT`), and every query here filters
+  `actor_type == STUDENT` defensively as well.
 """
 
 from __future__ import annotations
@@ -30,7 +38,9 @@ from backend import audit
 from backend.db import get_sessionmaker
 from backend.llm import LLMUnavailable, get_backend
 from backend.models import (
+    ActorType,
     ChatMessage,
+    ClassSession,
     Diagnosis,
     SocraticAttempt,
     SocraticSession,
@@ -46,6 +56,11 @@ from backend.summaries.trajectory import (
 )
 
 log = logging.getLogger(__name__)
+
+#: Keeps fire-and-forget background tasks (started outside a request's
+#: BackgroundTasks, e.g. from the "end class" route) referenced so the
+#: event loop cannot garbage-collect them mid-flight.
+_background_tasks: set[asyncio.Task] = set()
 
 SANITY_SYSTEM_PROMPT = """\
 You are screening a lab chat transcript before a short summary is written \
@@ -75,9 +90,10 @@ student was right or wrong, never grade, never score, never praise or \
 criticise. Plain prose, no markdown."""
 
 
-async def start_job(
+async def start_job_for_session(
     db,
     *,
+    class_session_id: str,
     classroom_id: str,
     experiment_id: str,
     requested_by: str,
@@ -85,6 +101,7 @@ async def start_job(
 ) -> SummaryJob:
     job = SummaryJob(
         classroom_id=classroom_id,
+        class_session_id=class_session_id,
         experiment_id=experiment_id,
         requested_by=requested_by,
         status="queued",
@@ -92,6 +109,42 @@ async def start_job(
     )
     db.add(job)
     await db.flush()
+    return job
+
+
+async def enqueue_for_session(db, *, class_session_id: str, requested_by: str) -> SummaryJob | None:
+    """Automatic trigger on class end (brief §19/§28) -- no separate button.
+
+    Resolves the roster and experiment from the session itself, starts the
+    job row synchronously (cheap), and schedules the actual generation as
+    a background task so ending class returns immediately.
+    """
+    from backend.classrooms import roster_with_users
+
+    session = (
+        await db.scalars(select(ClassSession).where(ClassSession.id == class_session_id))
+    ).first()
+    if session is None:
+        return None
+
+    roster = await roster_with_users(db, session.classroom_id)
+    student_ids = [user.id for _, user in roster]
+
+    job = await start_job_for_session(
+        db,
+        class_session_id=class_session_id,
+        classroom_id=session.classroom_id,
+        experiment_id=session.experiment_id,
+        requested_by=requested_by,
+        student_ids=student_ids,
+    )
+    await db.commit()
+
+    from backend.config import get_settings
+
+    task = asyncio.create_task(run_job(job.id, student_ids, workers=get_settings().summary_workers))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return job
 
 
@@ -161,8 +214,8 @@ async def _summarise_student(job: SummaryJob, student_id: str) -> None:
                     )
                     .where(
                         SocraticAttempt.student_id == student_id,
-                        SocraticSession.classroom_id == job.classroom_id,
-                        SocraticSession.experiment_id == job.experiment_id,
+                        SocraticSession.class_session_id == job.class_session_id,
+                        SocraticSession.actor_type == ActorType.STUDENT,
                     )
                 )
             ).all()
@@ -172,8 +225,8 @@ async def _summarise_student(job: SummaryJob, student_id: str) -> None:
                 await db.scalars(
                     select(ChatMessage).where(
                         ChatMessage.student_id == student_id,
-                        ChatMessage.classroom_id == job.classroom_id,
-                        ChatMessage.experiment_id == job.experiment_id,
+                        ChatMessage.class_session_id == job.class_session_id,
+                        ChatMessage.actor_type == ActorType.STUDENT,
                     )
                 )
             ).all()
@@ -183,8 +236,8 @@ async def _summarise_student(job: SummaryJob, student_id: str) -> None:
                 await db.scalars(
                     select(Submission).where(
                         Submission.student_id == student_id,
-                        Submission.classroom_id == job.classroom_id,
-                        Submission.experiment_id == job.experiment_id,
+                        Submission.class_session_id == job.class_session_id,
+                        Submission.actor_type == ActorType.STUDENT,
                     )
                 )
             ).all()
@@ -194,7 +247,7 @@ async def _summarise_student(job: SummaryJob, student_id: str) -> None:
                 await db.scalars(
                     select(Diagnosis).where(
                         Diagnosis.student_id == student_id,
-                        Diagnosis.classroom_id == job.classroom_id,
+                        Diagnosis.class_session_id == job.class_session_id,
                     )
                 )
             ).all()
@@ -203,8 +256,7 @@ async def _summarise_student(job: SummaryJob, student_id: str) -> None:
             await db.scalars(
                 select(SocraticSession).where(
                     SocraticSession.student_id == student_id,
-                    SocraticSession.classroom_id == job.classroom_id,
-                    SocraticSession.experiment_id == job.experiment_id,
+                    SocraticSession.class_session_id == job.class_session_id,
                 )
             )
         ).first()
@@ -232,6 +284,7 @@ async def _summarise_student(job: SummaryJob, student_id: str) -> None:
             StudentSummary(
                 student_id=student_id,
                 classroom_id=job.classroom_id,
+                class_session_id=job.class_session_id,
                 experiment_id=job.experiment_id,
                 text=text,
                 flagged=flagged,
@@ -256,17 +309,16 @@ async def run_job(job_id: str, student_ids: list[str], *, workers: int = 4) -> N
             return
         job.status = "running"
         await db.commit()
-        classroom_id, experiment_id = job.classroom_id, job.experiment_id
+        class_session_id = job.class_session_id
 
-    # Skip students already summarised: re-clicking the button must not
-    # re-bill inference for work already done.
+    # Skip students already summarised: re-triggering must not re-bill
+    # inference for work already done.
     async with sessionmaker() as db:
         done = set(
             (
                 await db.scalars(
                     select(StudentSummary.student_id).where(
-                        StudentSummary.classroom_id == classroom_id,
-                        StudentSummary.experiment_id == experiment_id,
+                        StudentSummary.class_session_id == class_session_id,
                     )
                 )
             ).all()
@@ -316,6 +368,7 @@ async def run_job(job_id: str, student_ids: list[str], *, workers: int = 4) -> N
                 audit.SUMMARY_JOB,
                 user_id=job.requested_by,
                 classroom_id=job.classroom_id,
+                class_session_id=job.class_session_id,
                 detail={
                     "job_id": job.id,
                     "completed": job.completed,

@@ -47,6 +47,10 @@ class Principal:
     def is_student(self) -> bool:
         return self.role is Role.STUDENT
 
+    @property
+    def is_admin(self) -> bool:
+        return self.role is Role.ADMIN
+
 
 async def current_user(
     request: Request, db: AsyncSession = Depends(get_session)
@@ -122,6 +126,53 @@ async def require_faculty(
     return principal
 
 
+async def require_admin(
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Principal:
+    if not principal.is_admin:
+        await audit.record(
+            db, audit.AUTH_FAILURE,
+            user_id=principal.id,
+            detail={"reason": "admin_role_required", "actual": principal.role.value},
+            commit=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin only"
+        )
+    return principal
+
+
+async def require_faculty_or_admin(
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Principal:
+    if not (principal.is_faculty or principal.is_admin):
+        await audit.record(
+            db, audit.AUTH_FAILURE,
+            user_id=principal.id,
+            detail={"reason": "faculty_or_admin_role_required", "actual": principal.role.value},
+            commit=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Staff or admin only"
+        )
+    return principal
+
+
+async def require_student_or_staff(
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> Principal:
+    """Any authenticated platform role. Used by routes (Socratic/diagnostic
+    test access) where faculty and admin may act as a *test* user alongside
+    real students -- the caller distinguishes them via `principal.role`,
+    server-derived, and stamps `actor_type` accordingly. Never a substitute
+    for classroom-membership scoping.
+    """
+    return principal
+
+
 async def student_scope(
     principal: Principal = Depends(require_student),
     db: AsyncSession = Depends(get_session),
@@ -134,4 +185,15 @@ async def faculty_scope(
     principal: Principal = Depends(require_faculty),
     db: AsyncSession = Depends(get_session),
 ) -> FacultyScope:
+    return FacultyScope(db, principal.id)
+
+
+async def faculty_or_admin_scope(
+    principal: Principal = Depends(require_faculty_or_admin),
+    db: AsyncSession = Depends(get_session),
+) -> FacultyScope:
+    """Same query-scoping object faculty use. For ADMIN, scope is bypassed
+    at the route layer (admin sees all classrooms) -- callers must check
+    `principal.is_admin` before relying on this scope's ownership filter.
+    """
     return FacultyScope(db, principal.id)

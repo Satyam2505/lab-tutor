@@ -16,28 +16,28 @@ it wrong means inventing chemistry for a student being assessed on it.
 
 ## Provenance of what is here
 
-Experiments 2, 3, 7 and 8 are populated from the topic lists supplied in
-the Phase 1 brief, which enumerated their subject matter directly
-(Gabedit/ORCA/Avogadro and HOMO/LUMO for 7; ethane and cyclohexane
-conformers for 8; ethyl acetate hydrolysis for 2; Ni(II) colorimetry and
-the smartphone RGB method for 3). That is `SourceTier.OFFICIAL_SUPPLEMENTARY`
-in spirit: enough to route on, not enough to answer from.
+**Updated once `manual/IACHY102_manual.md` arrived.** All ten experiments
+are now populated from that manual's actual per-experiment sections
+(headings, reagents, formulas, and named methods/instruments), not from
+a guess. Experiments 2, 3, 7 and 8 were populated first, from the Phase 1
+brief's topic list, before the manual existed; that vocabulary has been
+kept where it still matches the manual and is otherwise the same kind of
+routing-only vocabulary as the newly-added six.
 
-Experiments 1, 4, 5, 6, 9 and 10 are **unpopulated**, because nothing in
-this repository or in the brief establishes what they are. The IACHY102
-manual is not present (see `docs/current_state_audit.md` §0), and
-inventing plausible first-year chemistry titles for them would produce a
-router that confidently misroutes real student questions.
+Experiments 1, 4, 5, 6, 9 and 10 were previously `UNKNOWN_PENDING_MANUAL`
+because nothing available at the time established their subject matter,
+and inventing plausible titles would have produced a router that
+confidently misrouted real student questions. The manual now gives each
+of them a real title, reagents and named formula/instrument, so they are
+populated the same way as the original four: routing vocabulary only
+(experiment identity and terminology), never manual content, never cited,
+never a source of answers.
 
-They are therefore declared with `status=UNKNOWN_PENDING_MANUAL`, and
-`route()` returns `None` for them rather than guessing. A question that
-cannot be routed is still recognised as in-domain and handled — it
-becomes `IN_SCOPE_RETRIEVAL_INSUFFICIENT`, not `OUT_OF_SCOPE`. That is
-the correct behaviour for "I know this is chemistry, I cannot tell you
-which experiment", and it degrades honestly instead of silently.
-
-**Populating the remaining six is the first task in Phase 2** and takes
-about an hour once the PDF exists. See `docs/handoff_phase2.md`.
+`route()` still returns `None` for any experiment whose vocabulary is
+too weak to route confidently — that fallback path (an in-domain
+question the router cannot attribute to one experiment becomes
+`IN_SCOPE_RETRIEVAL_INSUFFICIENT`, not `OUT_OF_SCOPE`) remains available
+in principle, but no longer applies to any of the ten by declaration.
 """
 
 from __future__ import annotations
@@ -212,23 +212,141 @@ _add(
     )
 )
 
-# --- P1: subject matter not established -------------------------------------
-#
-# Deliberately empty. See the module docstring: a guessed title here
-# becomes a confidently misrouted student question.
+# --- P1: exp01 --------------------------------------------------------------
 
-for _unknown in ("exp01", "exp04", "exp05", "exp06", "exp09", "exp10"):
-    _add(
-        ExperimentTopic(
-            id=_unknown,
-            title=f"Experiment {int(_unknown[3:])} (subject matter pending IACHY102)",
-            status=TopicStatus.UNKNOWN_PENDING_MANUAL,
-            provenance=(
-                "Not established by any source available to this phase. "
-                "Populate from the manual before relying on routing."
-            ),
-        )
+_MANUAL = "manual/IACHY102_manual.md, routing vocabulary only"
+
+_add(
+    ExperimentTopic(
+        id="exp01",
+        title="Thermodynamic functions from EMF measurements: Zn-Cu system",
+        status=TopicStatus.KNOWN_FROM_BRIEF,
+        strong_terms=_t(
+            "emf", "daniell cell", "zn-cu", "zn cu", "zinc-copper",
+            "nernst", "nernst equation", "ecell", "e cell", "gibbs",
+            "gibbs free energy", "delta g", "delta h", "delta s",
+            "calomel", "sce", "standard electrode potential",
+            "single electrode potential", "activity coefficient",
+        ),
+        weak_terms=_t(
+            "electrode", "half-cell", "half cell", "cell potential",
+            "voltmeter", "salt bridge", "temperature", "concentration",
+            "thermodynamic", "entropy", "enthalpy", "log", "ln",
+        ),
+        software=frozenset(),
+        provenance=_MANUAL,
     )
+)
+
+# --- P1: exp04 --------------------------------------------------------------
+
+_add(
+    ExperimentTopic(
+        id="exp04",
+        title="Analysis of iron in carbon steel by potentiometry",
+        status=TopicStatus.KNOWN_FROM_BRIEF,
+        strong_terms=_t(
+            "carbon steel", "iron in steel", "potentiometry",
+            "potentiometric", "kmno4", "permanganate", "fe2+", "fe3+",
+            "fe2", "fe3", "endpoint from emf", "derivative plot",
+            "delta e", "delta v", "s-curve", "s curve",
+        ),
+        weak_terms=_t(
+            "titration", "titre", "normality", "equivalence point",
+            "endpoint", "electrode", "steel sample", "digestion",
+        ),
+        software=frozenset(),
+        provenance=_MANUAL,
+    )
+)
+
+# --- P1: exp05 --------------------------------------------------------------
+
+_add(
+    ExperimentTopic(
+        id="exp05",
+        title="Preparation and characterization of ZnO semiconductor",
+        status=TopicStatus.KNOWN_FROM_BRIEF,
+        strong_terms=_t(
+            "zno", "zinc oxide", "semiconductor", "xrd",
+            "x-ray diffraction", "scherrer", "scherrer equation",
+            "band gap", "uv-vis", "uv vis", "sem", "crystallite size",
+            "fwhm", "hexagonal zno",
+        ),
+        weak_terms=_t(
+            "precipitate", "calcination", "annealing", "morphology",
+            "nanoparticle", "characterization", "diffraction pattern",
+        ),
+        software=frozenset(),
+        provenance=_MANUAL,
+    )
+)
+
+# --- P1: exp06 --------------------------------------------------------------
+
+_add(
+    ExperimentTopic(
+        id="exp06",
+        title="Estimation of sulfate ion in drinking water by conductometry",
+        status=TopicStatus.KNOWN_FROM_BRIEF,
+        strong_terms=_t(
+            "sulfate", "sulphate", "so4", "conductometry",
+            "conductometric", "bacl2", "barium chloride", "baso4",
+            "conductance", "conductance vs volume", "minimum conductance",
+        ),
+        weak_terms=_t(
+            "titration", "equivalence", "standardisation",
+            "standardization", "precipitate", "eq wt", "equivalent weight",
+        ),
+        software=frozenset(),
+        provenance=_MANUAL,
+    )
+)
+
+# --- P1: exp09 --------------------------------------------------------------
+
+_add(
+    ExperimentTopic(
+        id="exp09",
+        title="Colorimetric estimation of Fe2+",
+        status=TopicStatus.KNOWN_FROM_BRIEF,
+        strong_terms=_t(
+            "fe2+", "fe2", "iron ii", "phenanthroline",
+            "1,10-phenanthroline", "1 10 phenanthroline",
+            "hydroxylamine", "nh2oh", "fe(phen)3",
+        ),
+        weak_terms=_t(
+            "colorimetry", "colorimeter", "calibration curve", "beer",
+            "beer lambert", "beer-lambert", "absorbance", "rgb",
+            "smartphone", "camera", "standard", "standards", "unknown",
+            "concentration", "wavelength", "dilution", "linear", "slope",
+        ),
+        software=frozenset(),
+        provenance=_MANUAL,
+    )
+)
+
+# --- P1: exp10 --------------------------------------------------------------
+
+_add(
+    ExperimentTopic(
+        id="exp10",
+        title="Size-dependent colour variation of Cu2O nanoparticles",
+        status=TopicStatus.KNOWN_FROM_BRIEF,
+        strong_terms=_t(
+            "cu2o", "cuprous oxide", "copper i oxide", "nephelometry",
+            "nephelometric", "turbidity", "ntu", "benedict", "benedict's",
+            "benedicts reagent", "glucose", "particle size", "nanoparticle",
+        ),
+        weak_terms=_t(
+            "naoh concentration", "colour change", "color change",
+            "yellow to red", "calibration curve", "standard curve",
+            "unknown", "graph",
+        ),
+        software=frozenset(),
+        provenance=_MANUAL,
+    )
+)
 
 
 # ---------------------------------------------------------------------------
@@ -362,5 +480,5 @@ def coverage_report() -> dict[str, object]:
         "experiments_routable": len(routable),
         "routable_ids": [t.id for t in routable],
         "pending_manual_ids": [t.id for t in unroutable_topics()],
-        "blocked_by": "IACHY102 manual absent; see docs/current_state_audit.md",
+        "blocked_by": None,
     }

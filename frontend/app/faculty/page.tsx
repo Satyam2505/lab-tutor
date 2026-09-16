@@ -107,8 +107,9 @@ function SectionCard({
   onError: (message: string) => void;
 }) {
   const [pendingExperiment, setPendingExperiment] = useState(
-    classroom.active_experiment_id ?? "",
+    experiments.find((e) => e.ready)?.id ?? "",
   );
+  const hasActiveSession = Boolean(classroom.active_session_id);
 
   return (
     <div className="card">
@@ -118,45 +119,73 @@ function SectionCard({
       </div>
 
       <p className="muted" style={{ marginTop: 8 }}>
-        Join code: <span className="mono">{classroom.join_code}</span>{" "}
-        {classroom.join_open ? "(open)" : "(closed)"}
+        Student code: <span className="mono">{classroom.student_join_code}</span>
+        {" · "}
+        Faculty code: <span className="mono">{classroom.faculty_join_code}</span>
+        {" · "}
+        {classroom.join_open ? "open" : "closed"}
       </p>
 
-      <label>
-        <span>Active experiment for this week</span>
-        <select
-          value={pendingExperiment}
-          onChange={(e) => setPendingExperiment(e.target.value)}
-        >
-          <option value="">— none —</option>
-          {experiments.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.id} — {e.title}
-              {e.ready ? "" : " (not configured)"}
-            </option>
-          ))}
-        </select>
-      </label>
+      {hasActiveSession ? (
+        <>
+          <p>
+            Class session active: <strong>{classroom.active_experiment_id}</strong>
+          </p>
+          <ActionButton
+            variant="secondary"
+            pendingLabel="Ending…"
+            confirm="End this class session? Students will no longer be able to ask questions, get hints, or submit for this classroom until a new session starts."
+            onAction={async () => {
+              try {
+                await api.post(
+                  `/api/classrooms/${classroom.id}/sessions/${classroom.active_session_id}/end`,
+                );
+                await onChanged();
+              } catch (e) {
+                onError(e instanceof ApiError ? e.message : String(e));
+              }
+            }}
+          >
+            End class
+          </ActionButton>
+        </>
+      ) : (
+        <>
+          <label>
+            <span>Experiment to start</span>
+            <select
+              value={pendingExperiment}
+              onChange={(e) => setPendingExperiment(e.target.value)}
+            >
+              <option value="">— choose —</option>
+              {experiments.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.id} — {e.title}
+                  {e.ready ? "" : " (not configured)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <ActionButton
+            disabled={!pendingExperiment}
+            pendingLabel="Starting…"
+            onAction={async () => {
+              try {
+                await api.post(`/api/classrooms/${classroom.id}/sessions/start`, {
+                  experiment_id: pendingExperiment,
+                });
+                await onChanged();
+              } catch (e) {
+                onError(e instanceof ApiError ? e.message : String(e));
+              }
+            }}
+          >
+            Start class
+          </ActionButton>
+        </>
+      )}
 
-      <div className="row">
-        <ActionButton
-          disabled={pendingExperiment === (classroom.active_experiment_id ?? "")}
-          pendingLabel="Saving…"
-          onAction={async () => {
-            try {
-              await api.patch(
-                `/api/classrooms/${classroom.id}/active-experiment`,
-                { experiment_id: pendingExperiment || null },
-              );
-              await onChanged();
-            } catch (e) {
-              onError(e instanceof ApiError ? e.message : String(e));
-            }
-          }}
-        >
-          Set experiment
-        </ActionButton>
-
+      <div className="row" style={{ marginTop: 10 }}>
         <ActionButton
           variant="secondary"
           pendingLabel="Saving…"

@@ -1,9 +1,12 @@
 """SQLAlchemy ORM models.
 
 Storage is continuous: messages, submissions and Socratic attempts are
-written as they happen and tagged with (student, classroom, experiment).
-There is no "close session" step -- summary generation reads whatever
-exists at the moment the professor asks for it.
+written as they happen and tagged with (student, classroom, class_session,
+experiment). A `ClassSession` is the unit of "one lab meeting" -- it is
+created when faculty/admin starts a class and closed when they end it.
+Historical activity points at the session it happened in, not merely at
+the classroom's current experiment, so a repeated experiment across two
+different sessions produces independent records.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -41,8 +45,49 @@ class Base(DeclarativeBase):
 
 
 class Role(str, enum.Enum):
+    """Platform identity. Derived server-side from the verified OAuth email
+    (admin allowlist checked first, then domain) -- never trusted from the
+    `User.role` column, a cookie, or any request body. See
+    backend/auth/roles.py.
+    """
+
     STUDENT = "student"
     FACULTY = "faculty"
+    ADMIN = "admin"
+
+
+class ClassroomRole(str, enum.Enum):
+    """Classroom membership role. Distinct from platform Role: ADMIN is a
+    platform identity, not something a classroom membership row can hold --
+    admin authority is global and does not require joining a classroom.
+    """
+
+    STUDENT = "student"
+    FACULTY = "faculty"
+
+
+class SessionStatus(str, enum.Enum):
+    ACTIVE = "active"
+    ENDED = "ended"
+
+
+class ActorType(str, enum.Enum):
+    """Tags who actually produced a piece of activity, independent of which
+    route/table it landed in. Lets summaries/analytics exclude faculty and
+    admin test/demo activity from real student participation data, and lets
+    a diagnostic dashboard tell a demonstrator's test submission apart from
+    a real student's. Server-set from the authenticated principal's
+    platform role at write time -- never client-supplied.
+    """
+
+    STUDENT = "student"
+    FACULTY_TEST = "faculty_test"
+    ADMIN_TEST = "admin_test"
+
+
+class ChatMessageKind(str, enum.Enum):
+    SOCRATIC = "socratic"
+    QA = "qa"
 
 
 class DiagnosisStatus(str, enum.Enum):
@@ -68,38 +113,101 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), default="")
     # Persisted for display/audit only. Authorisation ALWAYS re-derives the
-    # role from the verified email domain on the request -- never from here.
+    # role from the verified email (admin allowlist, then domain) on the
+    # request -- never from here.
     role: Mapped[Role] = mapped_column(Enum(Role), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class Classroom(Base):
+    """A persistent classroom for one lab section, spanning the semester.
+
+    Membership (who's a student/faculty here) lives in
+    `ClassroomMembership`, not on this row -- a classroom has no single
+    "owner"; any number of faculty are peers. The classroom's "current
+    experiment" is whatever its currently-ACTIVE `ClassSession` says, not a
+    field on this row -- see `ClassSession`.
+    """
+
     __tablename__ = "classrooms"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255))
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    # High-entropy join code (see classrooms/service.py) -- not a short
-    # guessable string.
-    join_code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Two independent high-entropy codes (see classrooms/service.py). Never
+    # exposed to the role that doesn't own them (faculty_join_code is never
+    # returned on a student-reachable response).
+    student_join_code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    faculty_join_code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     join_open: Mapped[bool] = mapped_column(Boolean, default=True)
-    # One persistent classroom per lab section, reused all semester. The
-    # professor updates this before each week's session; submissions are
-    # tagged from it, so students never self-report an experiment number.
-    active_experiment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
-    owner: Mapped[User] = relationship()
 
+class ClassroomMembership(Base):
+    """Who participates in a classroom, and how.
 
-class Enrollment(Base):
-    __tablename__ = "enrollments"
-    __table_args__ = (UniqueConstraint("classroom_id", "student_id", name="uq_enrollment"),)
+    Replaces the old student-only `Enrollment` table and the old
+    single-owner `Classroom.owner_id` column. Any number of FACULTY rows
+    may exist for one classroom -- all are peers with equal operational
+    authority. ADMIN is never a membership role: admin authority is
+    platform-wide and does not require joining.
+    """
+
+    __tablename__ = "classroom_memberships"
+    __table_args__ = (
+        UniqueConstraint("classroom_id", "user_id", "role", name="uq_membership"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
-    student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[ClassroomRole] = mapped_column(Enum(ClassroomRole), index=True)
     joined_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    removed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ClassSession(Base):
+    """One lab meeting: an experiment snapshotted and made active for a
+    classroom, from start to end.
+
+    At most one ACTIVE session may exist per classroom -- enforced at the
+    DB layer by a genuine partial unique index (`status = 'active'`),
+    which both Postgres and SQLite support, so the guarantee holds in the
+    test harness too, not only in production. The application-level
+    check-then-insert in `classrooms/service.py::start_session` is a fast
+    path/friendly-error layer on top of this; the index is what actually
+    prevents two concurrent starts from both succeeding. Every route that
+    used to trust `Classroom.active_experiment_id` now resolves the
+    classroom's current ACTIVE session instead, and rejects if none is
+    active or if the request names a session that has since ended -- this
+    is what makes a stale browser tab's request fail after faculty ends
+    class.
+    """
+
+    __tablename__ = "class_sessions"
+    __table_args__ = (
+        Index("ix_class_sessions_active_lookup", "classroom_id", "status"),
+        # SQLAlchemy's generic Enum type stores the member's .name (here,
+        # "ACTIVE"), not its .value ("active") -- verified against the
+        # actual stored row rather than assumed. The predicate must match
+        # that or the index silently never applies to any row.
+        Index(
+            "uq_one_active_session_per_classroom",
+            "classroom_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+            sqlite_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
+    experiment_id: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[SessionStatus] = mapped_column(Enum(SessionStatus), index=True)
+    started_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    ended_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    ended_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class Submission(Base):
@@ -108,8 +216,19 @@ class Submission(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
-    # Copied from the classroom's active experiment at submit time.
+    # Nullable only for rows backfilled before ClassSession existed. Every
+    # new submission is written with this set from server-resolved session
+    # state -- never client input for a real student submission (faculty/
+    # admin test submissions may pass an explicit override; see
+    # api/diagnostic_routes.py).
+    class_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("class_sessions.id"), nullable=True, index=True
+    )
+    # Copied from the session's experiment at submit time.
     experiment_id: Mapped[str] = mapped_column(String(64), index=True)
+    actor_type: Mapped[ActorType] = mapped_column(
+        Enum(ActorType), default=ActorType.STUDENT, index=True
+    )
     raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
     reported_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -127,6 +246,9 @@ class Diagnosis(Base):
     # Denormalised so student-scoped queries need no join.
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
+    class_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("class_sessions.id"), nullable=True, index=True
+    )
 
     status: Mapped[DiagnosisStatus] = mapped_column(Enum(DiagnosisStatus), index=True)
     # 1, 2 or 3 -- which tier produced this outcome. 3 means "abstained".
@@ -157,7 +279,13 @@ class SocraticSession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
+    class_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("class_sessions.id"), nullable=True, index=True
+    )
     experiment_id: Mapped[str] = mapped_column(String(64), index=True)
+    actor_type: Mapped[ActorType] = mapped_column(
+        Enum(ActorType), default=ActorType.STUDENT, index=True
+    )
     current_step: Mapped[int] = mapped_column(Integer, default=0)
     # The student's own accumulated readings, built up step by step. Tier 1
     # verifies each step against this; it is the only data the final reveal
@@ -189,15 +317,33 @@ class SocraticAttempt(Base):
 
 
 class ChatMessage(Base):
-    """Continuous transcript storage. Written as messages happen."""
+    """Continuous transcript storage. Written as messages happen.
+
+    `kind` distinguishes Socratic in-step chat (`session_id` set, tied to
+    one SocraticSession) from normal Q&A (`session_id` null -- a Q&A
+    conversation is not tied to a Socratic step machine). Both kinds always
+    carry `class_session_id` so summaries and history can query one
+    class meeting's transcript without caring which kind produced it.
+    """
 
     __tablename__ = "chat_messages"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    session_id: Mapped[str] = mapped_column(ForeignKey("socratic_sessions.id"), index=True)
+    kind: Mapped[ChatMessageKind] = mapped_column(
+        Enum(ChatMessageKind), default=ChatMessageKind.SOCRATIC, index=True
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("socratic_sessions.id"), nullable=True, index=True
+    )
+    class_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("class_sessions.id"), nullable=True, index=True
+    )
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
     experiment_id: Mapped[str] = mapped_column(String(64), index=True)
+    actor_type: Mapped[ActorType] = mapped_column(
+        Enum(ActorType), default=ActorType.STUDENT, index=True
+    )
     author: Mapped[str] = mapped_column(String(16))  # "student" | "tutor"
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -208,6 +354,9 @@ class SummaryJob(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
+    class_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("class_sessions.id"), nullable=True, index=True
+    )
     experiment_id: Mapped[str] = mapped_column(String(64))
     requested_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
@@ -222,16 +371,22 @@ class SummaryJob(Base):
 
 
 class StudentSummary(Base):
-    """Professor-visible only. Never returned on any student-facing route."""
+    """Professor-visible only. Never returned on any student-facing route.
+
+    Identity is (student, class_session) -- not (student, classroom,
+    experiment) -- so a repeated experiment across two different sessions
+    produces independent summaries instead of colliding.
+    """
 
     __tablename__ = "student_summaries"
     __table_args__ = (
-        UniqueConstraint("student_id", "classroom_id", "experiment_id", name="uq_summary"),
+        UniqueConstraint("student_id", "class_session_id", name="uq_summary_session"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
+    class_session_id: Mapped[str] = mapped_column(ForeignKey("class_sessions.id"), index=True)
     experiment_id: Mapped[str] = mapped_column(String(64), index=True)
     text: Mapped[str] = mapped_column(Text, default="")
     # A flagged transcript is still surfaced to the professor, never
@@ -248,6 +403,9 @@ class Escalation(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     diagnosis_id: Mapped[str] = mapped_column(ForeignKey("diagnoses.id"), index=True)
     classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
+    class_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("class_sessions.id"), nullable=True, index=True
+    )
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     reason: Mapped[str] = mapped_column(Text)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -257,10 +415,11 @@ class Escalation(Base):
 
 
 class AuditLog(Base):
-    """Queryable from the professor/TA dashboard.
+    """Queryable from the professor/TA/admin dashboard.
 
     Every diagnosis, every Tier 3 escalation and every auth failure lands
-    here with a timestamp and (where known) a user id.
+    here with a timestamp and (where known) a user id. Never logs secrets
+    or raw join codes -- only event identifiers and non-sensitive detail.
     """
 
     __tablename__ = "audit_log"
@@ -269,6 +428,7 @@ class AuditLog(Base):
     event: Mapped[str] = mapped_column(String(64), index=True)
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     classroom_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    class_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_now, index=True

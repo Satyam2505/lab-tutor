@@ -75,16 +75,35 @@ export interface Me {
   id: string;
   email: string;
   name: string;
-  role: "student" | "faculty";
+  role: "student" | "faculty" | "admin";
 }
 
 export interface Classroom {
   id: string;
   name: string;
-  join_code?: string;
   join_open?: boolean;
+  /** Present only when the caller is faculty/admin (own section, or an
+   * admin-listed one) -- a student's /enrolled view omits both codes. */
+  student_join_code?: string;
+  faculty_join_code?: string;
   active_experiment_id: string | null;
+  active_session_id: string | null;
   student_count?: number;
+}
+
+export interface ActiveSessionInfo {
+  active: boolean;
+  session_id?: string;
+  experiment_id?: string;
+  started_at?: string;
+}
+
+export interface ClassSessionInfo {
+  id: string;
+  experiment_id: string;
+  status: "active" | "ended";
+  started_at: string;
+  ended_at: string | null;
 }
 
 export interface Experiment {
@@ -109,6 +128,7 @@ export interface SocraticState {
   total_steps: number;
   prompt: string;
   complete: boolean;
+  actor_type?: string;
 }
 
 export interface AttemptResult {
@@ -131,6 +151,32 @@ export interface SubmissionResult {
   citation: string;
   low_confidence: boolean;
 }
+
+// --- Q&A chat ---------------------------------------------------------------
+
+export interface QaCitation {
+  text: string;
+  page: number;
+  tier: string;
+}
+
+export interface QaAskResult {
+  reply: string;
+  status: string | null;
+  citations: QaCitation[];
+  answer_source: string;
+  experiment_id: string | null;
+  intent: TutorIntent;
+}
+
+export interface QaHistoryMessage {
+  author: "student" | "tutor";
+  content: string;
+  experiment_id: string | null;
+  created_at: string;
+}
+
+// --- faculty/admin dashboard -------------------------------------------------
 
 export interface DashboardSubmission {
   submission_id: string;

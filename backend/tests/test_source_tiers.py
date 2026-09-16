@@ -189,12 +189,23 @@ def test_golden_qa_is_never_ingestible():
     assert not entry.ingestible
 
 
-def test_missing_manual_is_reported_as_blocked_not_skipped():
-    blocked = {e.document_id for e in get_manifest().blocked()}
-    assert "iachy102_manual_2026_27" in blocked, (
-        "the absent manual must surface as a blocked source; a pipeline that "
-        "silently indexes nothing looks identical to one that works"
-    )
+def test_current_manual_is_present_and_not_silently_missing():
+    """Before the manifest fix, this test guarded against a missing
+    *current* manual being silently skipped by ingestion rather than
+    reported as blocked. That scenario no longer exists: the document
+    actually ingested (iachy102_manual_markdown) is declared and present.
+    The original PDF and the legacy BACHY105 manual are absent but
+    explicitly marked superseded, so neither shows up as a blocker (an
+    unrelated, pre-existing pair of Tier B exp07 scripts are still
+    legitimately blocked/absent and are not part of what this test
+    guards)."""
+    manifest = get_manifest()
+    current = current_manual()
+    assert current.document_id == "iachy102_manual_markdown"
+    assert current.document.present
+    blocked_ids = {e.document_id for e in manifest.blocked()}
+    assert "iachy102_manual_2026_27_pdf" not in blocked_ids
+    assert "iachy102_manual_legacy_bachy105" not in blocked_ids
 
 
 def test_unknown_role_is_rejected(tmp_path):

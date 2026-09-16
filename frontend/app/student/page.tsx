@@ -2,29 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ActionButton } from "@/components/ActionButton";
+import { QaChat } from "@/components/QaChat";
 import { Shell } from "@/components/Shell";
-import {
-  ApiError,
-  api,
-  newIdempotencyKey,
-  type AttemptResult,
-  type Classroom,
-  type SocraticState,
-  type SubmissionResult,
-  type TutorIntent,
-} from "@/lib/api";
-
-interface Message {
-  author: "student" | "tutor";
-  content: string;
-  /** Set on tutor turns that were triaged, so safety replies stand out. */
-  intent?: TutorIntent;
-}
-
-/** Safety replies must not look like one more hint in the stream. */
-function isUrgent(intent?: TutorIntent) {
-  return intent === "safety_incident" || intent === "safety_question";
-}
+import { SocraticPanel } from "@/components/SocraticPanel";
+import { SubmitPanel } from "@/components/SubmitPanel";
+import { ApiError, api, newIdempotencyKey, type Classroom } from "@/lib/api";
 
 export default function StudentPage() {
   return <Shell requireRole="student">{() => <StudentLab />}</Shell>;
@@ -99,12 +81,71 @@ function StudentLab() {
 
           {selected?.active_experiment_id && (
             <>
-              <SocraticPanel classroom={selected} />
-              <SubmitPanel classroom={selected} />
+              <QaChat classroomId={selected.id} />
+              <SocraticPanel classroomId={selected.id} />
+              <SubmitPanel classroomId={selected.id} />
+              <HistoryPanel />
             </>
           )}
         </>
       )}
+    </>
+  );
+}
+
+interface SubmissionHistoryRow {
+  id: string;
+  experiment_id: string;
+  created_at: string;
+  status: string;
+  explanation: string;
+}
+
+function HistoryPanel() {
+  const [rows, setRows] = useState<SubmissionHistoryRow[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api
+      .get<{ submissions: SubmissionHistoryRow[] }>("/api/submissions/mine")
+      .then((d) => setRows(d.submissions))
+      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+  }, []);
+
+  return (
+    <>
+      <h2>My submission history</h2>
+      <div className="card">
+        {error && <div className="error">{error}</div>}
+        {rows === null ? (
+          <p className="muted">Loading…</p>
+        ) : rows.length === 0 ? (
+          <p className="muted">No submissions yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Experiment</th>
+                <th>Status</th>
+                <th>Submitted</th>
+                <th>Explanation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.experiment_id}</td>
+                  <td>
+                    <span className={`pill pill-${r.status}`}>{r.status}</span>
+                  </td>
+                  <td>{new Date(r.created_at).toLocaleString()}</td>
+                  <td>{r.explanation}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </>
   );
 }
@@ -151,302 +192,5 @@ function JoinClassroom({
         Join section
       </ActionButton>
     </div>
-  );
-}
-
-function SocraticPanel({ classroom }: { classroom: Classroom }) {
-  const [state, setState] = useState<SocraticState | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState("");
-  const [stepValue, setStepValue] = useState("");
-  const [stepData, setStepData] = useState("");
-  const [reveal, setReveal] = useState("");
-  const [error, setError] = useState("");
-  const [unavailable, setUnavailable] = useState("");
-
-  const start = useCallback(async () => {
-    try {
-      const s = await api.post<SocraticState>("/api/socratic/session", {
-        classroom_id: classroom.id,
-      });
-      setState(s);
-      setUnavailable("");
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 503) {
-        setUnavailable(e.message);
-      } else {
-        setError(e instanceof ApiError ? e.message : String(e));
-      }
-    }
-  }, [classroom.id]);
-
-  useEffect(() => {
-    setState(null);
-    setMessages([]);
-    setReveal("");
-    start();
-  }, [start]);
-
-  if (unavailable) {
-    return (
-      <>
-        <h2>Guided mode</h2>
-        <div className="notice">{unavailable}</div>
-      </>
-    );
-  }
-
-  if (!state) return <p className="muted">Loading guided mode…</p>;
-
-  return (
-    <>
-      <h2>Guided mode</h2>
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <strong>
-            Step {Math.min(state.current_step + 1, state.total_steps)} of{" "}
-            {state.total_steps}
-          </strong>
-          {state.complete && <span className="pill pill-pass">All steps verified</span>}
-        </div>
-        <div className="progress" style={{ margin: "10px 0 14px" }}>
-          <div
-            style={{
-              width: `${(state.current_step / Math.max(state.total_steps, 1)) * 100}%`,
-            }}
-          />
-        </div>
-
-        {!state.complete && <p>{state.prompt}</p>}
-
-        {error && <div className="error">{error}</div>}
-
-        {!state.complete && (
-          <>
-            <label>
-              <span>Your readings for this step (JSON, e.g. {"{"}&quot;titre_volume&quot;: 24.7{"}"})</span>
-              <textarea
-                rows={3}
-                className="mono"
-                value={stepData}
-                onChange={(e) => setStepData(e.target.value)}
-                placeholder='{"titre_volume": 24.7}'
-              />
-            </label>
-            <label>
-              <span>Your value for this step</span>
-              <input
-                value={stepValue}
-                onChange={(e) => setStepValue(e.target.value)}
-                placeholder="e.g. 24.7"
-              />
-            </label>
-            <ActionButton
-              disabled={!stepValue.trim()}
-              pendingLabel="Checking…"
-              onAction={async () => {
-                setError("");
-                let parsed: Record<string, unknown> = {};
-                if (stepData.trim()) {
-                  try {
-                    parsed = JSON.parse(stepData);
-                  } catch {
-                    setError("Your readings are not valid JSON.");
-                    return;
-                  }
-                }
-                try {
-                  const result = await api.post<AttemptResult>(
-                    `/api/socratic/session/${state.session_id}/attempt`,
-                    { data: parsed, value: stepValue.trim() },
-                  );
-                  setMessages((m) => [
-                    ...m,
-                    { author: "tutor", content: result.message },
-                  ]);
-                  setState({
-                    ...state,
-                    current_step: result.current_step,
-                    total_steps: result.total_steps,
-                    prompt: result.prompt,
-                    complete: result.complete,
-                  });
-                  if (result.passed) setStepValue("");
-                } catch (e) {
-                  setError(e instanceof ApiError ? e.message : String(e));
-                }
-              }}
-            >
-              Check this step
-            </ActionButton>
-          </>
-        )}
-
-        {state.complete && (
-          <>
-            <p className="muted">
-              Every step has been verified against your own data, so the
-              computed result is available now.
-            </p>
-            <ActionButton
-              pendingLabel="Fetching…"
-              onAction={async () => {
-                try {
-                  const r = await api.post<{ reveal: string }>(
-                    `/api/socratic/session/${state.session_id}/reveal`,
-                  );
-                  setReveal(r.reveal);
-                } catch (e) {
-                  setError(e instanceof ApiError ? e.message : String(e));
-                }
-              }}
-            >
-              Show the computed result
-            </ActionButton>
-            {reveal && <p style={{ marginTop: 12 }}>{reveal}</p>}
-          </>
-        )}
-      </div>
-
-      <div className="card">
-        <strong>Ask about this step</strong>
-        <p className="muted">
-          The tutor can nudge you, but it does not have the final answer to
-          give — it is never sent to it.
-        </p>
-        <div className="chat">
-          {messages.map((m, i) => (
-            <div
-              key={i}
-              className={`msg msg-${m.author}${isUrgent(m.intent) ? " msg-urgent" : ""}`}
-            >
-              {isUrgent(m.intent) && <strong>Stop and get your demonstrator. </strong>}
-              {m.content}
-            </div>
-          ))}
-        </div>
-        <label>
-          <span>Your message</span>
-          <textarea
-            rows={2}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </label>
-        <ActionButton
-          disabled={!draft.trim()}
-          pendingLabel="Sending…"
-          onAction={async () => {
-            const text = draft.trim();
-            setDraft("");
-            setMessages((m) => [...m, { author: "student", content: text }]);
-            try {
-              const r = await api.post<{ reply: string; intent: TutorIntent }>(
-                `/api/socratic/session/${state.session_id}/message`,
-                { message: text },
-              );
-              setMessages((m) => [
-                ...m,
-                { author: "tutor", content: r.reply, intent: r.intent },
-              ]);
-            } catch (e) {
-              setMessages((m) => [
-                ...m,
-                {
-                  author: "tutor",
-                  content:
-                    e instanceof ApiError ? e.message : "Something went wrong.",
-                },
-              ]);
-            }
-          }}
-        >
-          Send
-        </ActionButton>
-      </div>
-    </>
-  );
-}
-
-function SubmitPanel({ classroom }: { classroom: Classroom }) {
-  const [data, setData] = useState("");
-  const [reported, setReported] = useState("");
-  const [remarks, setRemarks] = useState("");
-  const [result, setResult] = useState<SubmissionResult | null>(null);
-  const [error, setError] = useState("");
-
-  return (
-    <>
-      <h2>Submit a finished record</h2>
-      <div className="card">
-        {error && <div className="error">{error}</div>}
-
-        <label>
-          <span>Your readings (JSON)</span>
-          <textarea
-            rows={5}
-            className="mono"
-            value={data}
-            onChange={(e) => setData(e.target.value)}
-            placeholder='{"standard_normality": 0.1, "standard_volume": 25.0, "titre_volume": 20.0}'
-          />
-        </label>
-        <label>
-          <span>Your reported result</span>
-          <input value={reported} onChange={(e) => setReported(e.target.value)} />
-        </label>
-        <label>
-          <span>Remarks (anything unusual about the run)</span>
-          <textarea
-            rows={2}
-            value={remarks}
-            onChange={(e) => setRemarks(e.target.value)}
-          />
-        </label>
-
-        <ActionButton
-          disabled={!data.trim()}
-          pendingLabel="Checking…"
-          onAction={async () => {
-            setError("");
-            setResult(null);
-            let parsed: Record<string, unknown>;
-            try {
-              parsed = JSON.parse(data);
-            } catch {
-              setError("Your readings are not valid JSON.");
-              return;
-            }
-            try {
-              const r = await api.post<SubmissionResult>("/api/submissions", {
-                classroom_id: classroom.id,
-                data: parsed,
-                reported_value: reported.trim() || null,
-                remarks,
-                idempotency_key: newIdempotencyKey(),
-              });
-              setResult(r);
-            } catch (e) {
-              setError(e instanceof ApiError ? e.message : String(e));
-            }
-          }}
-        >
-          Submit for checking
-        </ActionButton>
-
-        {result && (
-          <div style={{ marginTop: 16 }}>
-            <span className={`pill pill-${result.status}`}>{result.status}</span>
-            {result.low_confidence && (
-              <span className="pill pill-escalated" style={{ marginLeft: 6 }}>
-                low confidence
-              </span>
-            )}
-            <p style={{ marginTop: 10 }}>{result.explanation}</p>
-            {result.citation && <p className="muted">{result.citation}</p>}
-          </div>
-        )}
-      </div>
-    </>
   );
 }

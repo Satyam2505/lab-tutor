@@ -21,12 +21,16 @@ benchmark. It can verify, today, against real running code:
   (`knowledge/adjacent/`) actually answers the adjacent questions it was
   written for.
 
-It **cannot** yet verify answer *content* against the manual, because
-the manual is not in the repository (`docs/current_state_audit.md` §0).
-Every case's `expected_answer_facts` is therefore explicitly `null` with
-a `blocked_reason`, not an invented fact standing in for one -- exactly
-the stance `golden_dataset/README.md` and CLAUDE.md's testing section
-already take for Tier 1 cases.
+It still does **not** verify answer *content* against the manual (that
+would require hand-checking each generated answer's prose against the
+manual text, which this script does not do) -- only which `AnswerStatus`/
+routing/citation-presence outcome a question resolves to, live. Every
+case's `expected_answer_facts` is therefore still explicitly `null`, with
+a `blocked_reason` on any non-answerable case explaining *why* it wasn't
+answered (see `_blocked_reason_for`) -- not an invented fact standing in
+for one. The manual (`manual/IACHY102_manual.md`) has been in the
+repository since 2026-09-12; the historical "manual not present" caveat
+that used to sit here is stale and has been removed.
 
 ## Distribution (brief section 8-10)
 
@@ -63,9 +67,22 @@ PRIORITY_TARGETS = {
     "exp03": 115,
     "exp08": 115,
 }
-BASELINE_PER_UNKNOWN_EXPERIMENT = 18
+#: The remaining six experiments now have real ontology vocabulary too
+#: (backend/scope/ontology.py populated all 10 -- see docs/handoff_phase2.md
+#: item 2), so they get the same template-driven case generation as the
+#: priority four, just at the brief's smaller P1-baseline volume rather
+#: than a full priority allocation.
+BASELINE_TARGET = 18
+BASELINE_EXPERIMENTS = tuple(
+    eid for eid in sorted(ontology._TOPICS) if eid not in PRIORITY_TARGETS
+)
+#: Experiments with no populated ontology at all would fall back to fully
+#: generic, vocabulary-free questions -- kept as a safety net for any
+#: future experiment that regresses to PendingManualPlugin/UNKNOWN status,
+#: not currently exercised (all 10 topics are populated as of this
+#: session).
 UNKNOWN_EXPERIMENTS = tuple(
-    t.id for t in ontology.unroutable_topics()
+    t.id for t in ontology.unroutable_topics() if t.id not in PRIORITY_TARGETS
 )
 
 # ---------------------------------------------------------------------------
@@ -157,16 +174,6 @@ _EXPLICIT_UNKNOWN_TEMPLATES = [
 ]
 
 
-def _terms_for(topic) -> list[str]:
-    # Every strong term gets used somewhere (sorted for determinism) --
-    # truncating this list is what left "methane", "ch4" and others with
-    # zero question coverage on an earlier run; see
-    # golden_dataset/qa/coverage_report.py. Weak terms are capped since
-    # they exist only to break ties, not to be the question's subject.
-    picked = sorted(topic.strong_terms) + sorted(topic.weak_terms)[:6]
-    return picked or ["procedure"]
-
-
 def _software_for(topic) -> list[str]:
     return list(topic.software) or ["the software"]
 
@@ -188,7 +195,16 @@ def _cycle(seq):
 
 def build_priority_cases(experiment_id: str, target: int) -> list[dict]:
     topic = ontology.get_topic(experiment_id)
-    terms = _cycle(_terms_for(topic))
+    # Strong terms only, not _terms_for()'s strong+weak mix, for the
+    # question *subject*: several experiments' weak_terms sets overlap
+    # deliberately (e.g. exp03/exp09/exp10 all list "beer lambert",
+    # "absorbance", "colorimetry" as shared colorimetric vocabulary), so a
+    # weak term picked as the subject of a "direct_clean" case is not
+    # actually unique to this experiment and can legitimately route
+    # elsewhere -- that's real classifier ambiguity, not a bug in the
+    # classifier, but it makes weak terms the wrong choice for a case
+    # whose whole point is asserting unambiguous routing to one experiment.
+    terms = _cycle(sorted(topic.strong_terms) or ["procedure"])
     software_terms = _cycle(_software_for(topic))
     adjacent_terms = _cycle(_adjacent_terms_for(experiment_id))
     verbs = _cycle(_VERBS)
@@ -293,6 +309,21 @@ def build_unknown_experiment_cases(experiment_id: str, target: int) -> list[dict
     return cases
 
 
+def _blocked_reason_for(status: AnswerStatus) -> str:
+    """An honest, status-specific reason a non-answerable case wasn't
+    answered -- not the stale blanket "manual not present" string this
+    used to say for every unanswerable case, from before the manual
+    (manual/IACHY102_manual.md) was in the repository at all.
+    """
+    if status is AnswerStatus.IN_SCOPE_RETRIEVAL_INSUFFICIENT:
+        return "retrieval found no manual passage clearing the grounding bar for this question"
+    if status is AnswerStatus.ADJACENT_UNSUPPORTED:
+        return "adjacent-knowledge corpus has no passage clearing the grounding bar for this question"
+    if status is AnswerStatus.NEEDS_HUMAN_REVIEW:
+        return "scope/evidence signals were ambiguous enough to require human review rather than a guess"
+    return f"status {status.value} was not answerable for a reason not covered by this generator"
+
+
 async def _resolve(case: dict, active_experiment: str | None) -> dict:
     result = await answer_question(case["user_question"], active_experiment=active_experiment, use_llm=False)
     allowed_sources = sorted({c.tier.value for c in result.citations}) or []
@@ -307,7 +338,7 @@ async def _resolve(case: dict, active_experiment: str | None) -> dict:
         "blocked_reason": (
             None
             if result.status.answerable
-            else "IACHY102 manual not present in the repository; see docs/current_state_audit.md"
+            else _blocked_reason_for(result.status)
         ),
         "allowed_sources": allowed_sources,
         "citation_expected": bool(result.citations),
@@ -357,8 +388,10 @@ async def main_async() -> int:
     all_cases: list[dict] = []
     for experiment_id, target in PRIORITY_TARGETS.items():
         all_cases.extend(build_priority_cases(experiment_id, target))
+    for experiment_id in BASELINE_EXPERIMENTS:
+        all_cases.extend(build_priority_cases(experiment_id, BASELINE_TARGET))
     for experiment_id in UNKNOWN_EXPERIMENTS:
-        all_cases.extend(build_unknown_experiment_cases(experiment_id, BASELINE_PER_UNKNOWN_EXPERIMENT))
+        all_cases.extend(build_unknown_experiment_cases(experiment_id, BASELINE_TARGET))
 
     resolved_cases: list[dict] = []
     failures: list[str] = []
@@ -399,8 +432,9 @@ async def main_async() -> int:
                 "Every case's expected_behavior was computed by running the live "
                 "backend.retrieval.pipeline.answer_question() and is re-verified by "
                 "backend/tests/test_golden_qa_dataset.py. expected_answer_facts is "
-                "always null: the IACHY102 manual is not in this repository, so no "
-                "answer content can be verified yet -- see docs/current_state_audit.md."
+                "always null: this generator checks scope/routing/citation-presence "
+                "outcomes, not hand-verified answer content, against the manual "
+                "(manual/IACHY102_manual.md, present in this repository)."
             ),
             "case_count": len(group_cases),
             "cases": group_cases,
@@ -412,7 +446,8 @@ async def main_async() -> int:
         "generated": len(resolved_cases),
         "by_experiment": by_experiment,
         "priority_targets": PRIORITY_TARGETS,
-        "baseline_per_unknown_experiment": BASELINE_PER_UNKNOWN_EXPERIMENT,
+        "baseline_experiments": BASELINE_EXPERIMENTS,
+        "baseline_target_per_experiment": BASELINE_TARGET,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 

@@ -115,6 +115,8 @@ def fake_llm(monkeypatch):
 @pytest_asyncio.fixture
 async def db() -> AsyncIterator:
     """A fresh schema per test."""
+    import asyncio
+
     from backend.db import create_all, dispose_engine, get_engine, get_sessionmaker
     from backend.models import Base
 
@@ -126,6 +128,18 @@ async def db() -> AsyncIterator:
 
     async with get_sessionmaker()() as session:
         yield session
+
+    # Drain any fire-and-forget background tasks a route may have started
+    # (e.g. `enqueue_for_session`'s auto-triggered summary generation on
+    # class-session end) before tearing down. On the shared test SQLite
+    # file, an in-flight task from THIS test racing the NEXT test's
+    # `DROP TABLE` reset produced real `database is locked` errors --
+    # found via this session's own test run, not a hypothetical.
+    from backend.summaries.jobs import _background_tasks
+
+    pending = [t for t in _background_tasks if not t.done()]
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
     await dispose_engine()
 

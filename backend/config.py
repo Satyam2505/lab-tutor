@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     faculty_domains: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["vit.ac.in"], alias="LABTUTOR_FACULTY_DOMAINS"
     )
+    # Platform administrator allowlist, checked BEFORE domain-role
+    # resolution (backend/auth/roles.py). Admin is a platform identity, not
+    # a classroom membership -- it does not require joining a classroom.
+    admin_emails: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["adhyanjain2006@gmail.com"], alias="LABTUTOR_ADMIN_EMAILS"
+    )
 
     # --- oauth ---
     google_client_id: str = Field("", alias="GOOGLE_CLIENT_ID")
@@ -102,6 +108,7 @@ class Settings(BaseSettings):
     # --- rate limits ---
     ratelimit_socratic_per_minute: int = Field(12, alias="LABTUTOR_RATELIMIT_SOCRATIC_PER_MINUTE")
     ratelimit_submit_per_hour: int = Field(30, alias="LABTUTOR_RATELIMIT_SUBMIT_PER_HOUR")
+    ratelimit_qa_per_minute: int = Field(12, alias="LABTUTOR_RATELIMIT_QA_PER_MINUTE")
 
     # --- summaries ---
     summary_workers: int = Field(4, alias="LABTUTOR_SUMMARY_WORKERS")
@@ -110,6 +117,12 @@ class Settings(BaseSettings):
     @classmethod
     def _norm_domains(cls, v):
         return _split_domains(v)
+
+    @field_validator("admin_emails", mode="before")
+    @classmethod
+    def _norm_admin_emails(cls, v):
+        raw = v.split(",") if isinstance(v, str) else list(v)
+        return [p.strip().lower() for p in raw if p and p.strip()]
 
     @property
     def database_url(self) -> str:

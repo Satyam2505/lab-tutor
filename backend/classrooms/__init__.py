@@ -1,17 +1,26 @@
-"""Persistent classrooms, high-entropy join codes, active-experiment tagging."""
+"""Persistent classrooms, two independent high-entropy join codes, and the
+ClassSession lifecycle (start/end a class, one ACTIVE session at a time)."""
 
 from backend.classrooms.service import (
     ClassroomError,
     ClassroomView,
     JoinClosed,
+    NoActiveSession,
     NotEnrolled,
+    SessionAlreadyActive,
+    WrongCodeRole,
     create_classroom,
+    end_session,
+    faculty_roster_with_users,
     generate_join_code,
+    get_active_session,
     join_classroom,
-    require_active_experiment,
+    regenerate_join_code,
+    remove_faculty,
+    require_active_session,
     roster_with_users,
-    set_active_experiment,
     set_join_open,
+    start_session,
     student_count,
 )
 
@@ -19,13 +28,21 @@ __all__ = [
     "ClassroomError",
     "ClassroomView",
     "JoinClosed",
+    "NoActiveSession",
     "NotEnrolled",
+    "SessionAlreadyActive",
+    "WrongCodeRole",
     "create_classroom",
+    "end_session",
+    "faculty_roster_with_users",
     "generate_join_code",
+    "get_active_session",
     "join_classroom",
-    "require_active_experiment",
+    "regenerate_join_code",
+    "remove_faculty",
+    "require_active_session",
     "roster_with_users",
-    "set_active_experiment",
     "set_join_open",
+    "start_session",
     "student_count",
 ]

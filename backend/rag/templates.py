@@ -80,6 +80,21 @@ def step_pass_text(step_number: int, total: int) -> str:
     return f"That step checks out. Move on to step {step_number + 1} of {total}."
 
 
+def step_acknowledged_text(step_number: int, total: int) -> str:
+    """Experiments 7/8 only: this experiment has no pass/fail check for a
+    method-choice step, so wording must not claim one -- distinct from
+    `step_pass_text`, which says something "checks out"."""
+    if step_number >= total:
+        return (
+            "Logged. This experiment's final assessment is a demonstrator "
+            "review, not an automatic pass -- that was the last step."
+        )
+    return (
+        f"Logged. Move on to step {step_number + 1} of {total}; this experiment's "
+        "steps are recorded for review rather than automatically verified."
+    )
+
+
 def refusal_text() -> str:
     """The standing refusal used for direct answer requests.
 

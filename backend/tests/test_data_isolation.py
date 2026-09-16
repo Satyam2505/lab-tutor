@@ -45,12 +45,14 @@ async def _make_classroom(client, faculty_token, experiment_id="ref01"):
     )
     assert created.status_code == 201, created.text
     classroom = created.json()
-    activated = await client.patch(
-        f"/api/classrooms/{classroom['id']}/active-experiment",
-        json={"experiment_id": experiment_id},
-        headers=auth(faculty_token),
-    )
-    assert activated.status_code == 200, activated.text
+    if experiment_id is not None:
+        started = await client.post(
+            f"/api/classrooms/{classroom['id']}/sessions/start",
+            json={"experiment_id": experiment_id},
+            headers=auth(faculty_token),
+        )
+        assert started.status_code == 201, started.text
+        classroom["active_session_id"] = started.json()["session_id"]
     return classroom
 
 
@@ -87,9 +89,19 @@ class TestAuthenticationBoundary:
         assert resp.status_code == 401
 
     async def test_tampered_cookie_is_rejected(self, client, make_user):
+        """Flipping the token's *last* character is not a reliable tamper:
+        base64url padding can leave the final character's low bits
+        unused, so two different final characters sometimes decode to the
+        identical byte string and the signature still verifies -- a flaky
+        test, not a signature-bypass bug (found while chasing an
+        intermittent failure here; itsdangerous's HMAC check itself is
+        unaffected). Flip a character in the middle of the token instead,
+        which always changes a real payload/signature byte.
+        """
         _, token = await make_user("student.a2024@vitstudent.ac.in")
-        # Flip a character in the signature.
-        tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
+        mid = len(token) // 2
+        flipped = "a" if token[mid] != "a" else "b"
+        tampered = token[:mid] + flipped + token[mid + 1 :]
         resp = await client.get("/api/auth/me", headers=auth(tampered))
         assert resp.status_code == 401
 
@@ -137,19 +149,37 @@ class TestRoleGating:
             await client.get("/api/dashboard/audit", headers=auth(token))
         ).status_code == 403
 
-    async def test_faculty_cannot_join_as_a_student(self, client, make_user):
-        _, token = await make_user("prof@vit.ac.in")
+    async def test_faculty_cannot_join_with_the_student_code(self, client, make_user):
+        """A code's role must match the caller's own platform role -- no
+        "closest role" fallback (brief §6)."""
+        _, prof = await make_user("prof@vit.ac.in")
+        classroom = await _make_classroom(client, prof, experiment_id=None)
         resp = await client.post(
             "/api/classrooms/join",
-            json={"join_code": "AAAAA-BBBBB-CCCCC-DDDDD"},
-            headers=auth(token),
+            json={"join_code": classroom["student_join_code"]},
+            headers=auth(prof),
         )
         assert resp.status_code == 403
 
-    async def test_faculty_cannot_submit_as_a_student(self, client, make_user):
-        _, token = await make_user("prof@vit.ac.in")
-        resp = await _submit(client, token, "any-classroom")
+    async def test_student_cannot_join_with_the_faculty_code(self, client, make_user):
+        _, prof = await make_user("prof@vit.ac.in")
+        classroom = await _make_classroom(client, prof, experiment_id=None)
+        _, alice = await make_user("student.a2024@vitstudent.ac.in")
+        resp = await client.post(
+            "/api/classrooms/join",
+            json={"join_code": classroom["faculty_join_code"]},
+            headers=auth(alice),
+        )
         assert resp.status_code == 403
+
+    async def test_faculty_test_submission_still_scoped_to_a_real_classroom(
+        self, client, make_user
+    ):
+        """Faculty may submit test records (brief §12), but not to a
+        classroom-id that does not exist or that they do not belong to."""
+        _, token = await make_user("prof@vit.ac.in")
+        resp = await _submit(client, token, "no-such-classroom")
+        assert resp.status_code == 404
 
 
 # --- cross-student isolation (golden dataset category 4e) ------------------
@@ -164,8 +194,8 @@ class TestStudentDataIsolation:
 
         _, alice = await make_user("student.a2024@vitstudent.ac.in", "Alice")
         _, bob = await make_user("student.b2024@vitstudent.ac.in", "Bob")
-        await _enrol(client, alice, classroom["join_code"])
-        await _enrol(client, bob, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
+        await _enrol(client, bob, classroom["student_join_code"])
 
         created = await _submit(client, alice, classroom["id"])
         assert created.status_code == 201, created.text
@@ -190,8 +220,8 @@ class TestStudentDataIsolation:
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
         _, bob = await make_user("student.b2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
-        await _enrol(client, bob, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
+        await _enrol(client, bob, classroom["student_join_code"])
 
         await _submit(client, alice, classroom["id"])
 
@@ -226,7 +256,7 @@ class TestStudentDataIsolation:
             f"/api/classrooms/{classroom['id']}/roster",
             f"/api/dashboard/classrooms/{classroom['id']}/submissions",
             f"/api/dashboard/classrooms/{classroom['id']}/escalations",
-            f"/api/dashboard/classrooms/{classroom['id']}/summaries",
+            f"/api/dashboard/classrooms/{classroom['id']}/sessions/no-such-session/summaries",
         ):
             resp = await client.get(path, headers=auth(prof_b))
             assert resp.status_code == 404, path
@@ -237,10 +267,11 @@ class TestStudentDataIsolation:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         resp = await client.get(
-            f"/api/dashboard/classrooms/{classroom['id']}/summaries",
+            f"/api/dashboard/classrooms/{classroom['id']}/sessions/"
+            f"{classroom['active_session_id']}/summaries",
             headers=auth(alice),
         )
         assert resp.status_code == 403
@@ -253,7 +284,7 @@ class TestClassroomMechanics:
     async def test_join_code_has_real_entropy(self, client, make_user):
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof, experiment_id=None)
-        code = classroom["join_code"]
+        code = classroom["student_join_code"]
         alphabet_chars = [c for c in code if c != "-"]
         assert len(alphabet_chars) == 20, "expected 20 code characters"
         # 31-symbol alphabet, 20 characters -> ~99 bits. Well past guessable.
@@ -268,7 +299,7 @@ class TestClassroomMechanics:
                 json={"name": "Section", "idempotency_key": str(len(codes))},
                 headers=auth(prof),
             )
-            codes.add(created.json()["join_code"])
+            codes.add(created.json()["student_join_code"])
         assert len(codes) == 5
 
     async def test_closed_classroom_refuses_new_joins(self, client, make_user):
@@ -284,7 +315,7 @@ class TestClassroomMechanics:
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
         refused = await client.post(
             "/api/classrooms/join",
-            json={"join_code": classroom["join_code"]},
+            json={"join_code": classroom["student_join_code"]},
             headers=auth(alice),
         )
         assert refused.status_code == 403
@@ -295,14 +326,15 @@ class TestClassroomMechanics:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof, experiment_id=None)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         listing = await client.get(
             "/api/classrooms/enrolled", headers=auth(alice)
         )
         assert listing.status_code == 200
         for entry in listing.json()["classrooms"]:
-            assert "join_code" not in entry
+            assert "student_join_code" not in entry
+            assert "faculty_join_code" not in entry
 
     async def test_submission_is_tagged_from_the_classroom_not_the_client(
         self, client, make_user, fake_llm, registered_experiment
@@ -311,7 +343,7 @@ class TestClassroomMechanics:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         created = await _submit(
             client, alice, classroom["id"], experiment_id="exp09"  # ignored
@@ -325,7 +357,7 @@ class TestClassroomMechanics:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof, experiment_id=None)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         resp = await _submit(client, alice, classroom["id"])
         assert resp.status_code == 409
@@ -342,7 +374,7 @@ class TestClassroomMechanics:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         bad = dict(STUDENT_DATA)
         bad["titre_volume"] = "12,34"  # ambiguous decimal comma
@@ -385,7 +417,7 @@ class TestDoubleSubmit:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         first = await _submit(client, alice, classroom["id"])
         assert first.status_code == 201
@@ -417,7 +449,7 @@ class TestDoubleSubmit:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         await _submit(client, alice, classroom["id"], reported_value=0.125)
         await _submit(client, alice, classroom["id"], reported_value=0.130)
@@ -441,7 +473,7 @@ class TestRateLimiting:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         statuses = []
         for i in range(4):
@@ -470,7 +502,7 @@ class TestEveryAwaitReviewCaseReachesAHuman:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof, experiment_id="exp08")
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         created = await client.post(
             "/api/submissions",
@@ -509,7 +541,7 @@ class TestEveryAwaitReviewCaseReachesAHuman:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof)
         _, alice = await make_user("student.a2024@vitstudent.ac.in")
-        await _enrol(client, alice, classroom["join_code"])
+        await _enrol(client, alice, classroom["student_join_code"])
 
         # Off by a factor of ten: diagnosed, fixable at the desk.
         created = await _submit(client, alice, classroom["id"], reported_value=1.25)
