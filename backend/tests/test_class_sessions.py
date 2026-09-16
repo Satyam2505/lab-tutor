@@ -513,3 +513,25 @@ class TestJoinRace:
             )
         ).all()
         assert len(rows) == 1, "a join race produced more than one membership row"
+
+
+class TestExperimentCatalogue:
+    """GET /api/classrooms/experiments is non-sensitive catalogue metadata
+    (id/title/kind/readiness/priority) -- the shared chat UI reads it for
+    every role, not just faculty/admin's "start a class" picker."""
+
+    async def test_a_plain_student_can_read_the_experiment_list(
+        self, client, make_user
+    ):
+        _, student = await make_user("student.catalogue@vitstudent.ac.in")
+        resp = await client.get("/api/classrooms/experiments", headers=auth(student))
+        assert resp.status_code == 200, resp.text
+        ids = {e["id"] for e in resp.json()["experiments"]}
+        assert len(ids) == 10
+
+    async def test_faculty_still_reads_it_priority_sorted(self, client, make_user):
+        _, prof = await make_user("prof.catalogue@vit.ac.in")
+        resp = await client.get("/api/classrooms/experiments", headers=auth(prof))
+        assert resp.status_code == 200
+        experiments = resp.json()["experiments"]
+        assert experiments[0]["priority"] in ("P0+", "P0")

@@ -122,13 +122,19 @@ async def _classroom_payload(db: AsyncSession, classroom: Classroom, *, include_
 
 @router.get("/experiments")
 async def list_experiments(
-    principal: Principal = Depends(require_faculty_or_admin),
+    principal: Principal = Depends(current_user),
 ) -> dict:
     """Every experiment that may be started as a class session, readiness,
     and its evaluation priority (P0+/P0/P1 -- product coverage is all ten;
     this only orders where testing effort concentrated, per
     backend/scope/ontology.py::PRIORITY). Listed in priority order so the
     best-covered experiments surface first without hiding the rest.
+
+    Any authenticated role may read this -- id/title/kind/readiness/
+    priority is non-sensitive catalogue metadata (no student data, no
+    join codes). Originally faculty/admin-only when only the "start a
+    class" picker used it; the shared chat UI now also needs it for
+    students to populate their experiment selector.
     """
     from backend.scope.ontology import PRIORITY
 
