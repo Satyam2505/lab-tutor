@@ -1,11 +1,25 @@
 # Phase 3 handoff
 
-Written mid-session (2026-09-17, branch `master`, HEAD `ccf0bc6`) because
-the session's usage window is ending. `docs/handoff_phase2.md` is now
-stale in its "manual missing" framing — the manual
+Written mid-session (2026-09-17, branch `master`, HEAD `e17afd3`), first
+as a preemptive note before a usage-window cutoff, then updated after
+the session actually continued past that point. `docs/handoff_phase2.md`
+is now stale in its "manual missing" framing — the manual
 (`manual/IACHY102_manual.md`) has been present and ingested for several
 sessions; ignore that document's premise, not necessarily every finding
 in it (some items may still be open — not re-audited this session).
+
+**Update**: after this doc was first written (commit `5938e31`), a
+different agent session (`848eb3b`) rewrote the student/faculty/admin
+frontend into a single shared "ChatGPT-style" `ChatWorkspace` component
+(`frontend/components/ChatWorkspace.tsx`) with multi-thread chat, plus a
+new backend `backend/api/chat_routes.py` and a `thread_id`/`metadata_json`
+migration on `chat_messages`. This session then continued, verified that
+rewrite (backend suite, tsc, build, Alembic all still green against it),
+found and fixed one real live bug it introduced
+(`GET /api/classrooms/experiments` still `require_faculty_or_admin`-gated
+even though the new shared `ChatWorkspace` calls it for students too —
+fixed in `e17afd3`), and re-verified the fix live in a browser. The
+"suggested next steps" section below is updated accordingly.
 
 ## What this session did (all pushed, commits `86310e9`..`ccf0bc6`)
 
@@ -49,30 +63,75 @@ in it (some items may still be open — not re-audited this session).
 8. Golden QA dataset regenerated against the live manual/pipeline,
    623/623 verified.
 
+## IMPORTANT: the frontend described in items 1-8 above is now superseded
+
+Everything in the "what this session did" list above that describes
+`frontend/app/student/page.tsx`, `frontend/app/admin/page.tsx`,
+`frontend/app/faculty/page.tsx` as separate per-role pages with distinct
+`SubmitPanel`/`SocraticPanel`/`QaChat`/`Roster`/`Coverage` components is
+**historically accurate for what this session built, but those pages
+were then replaced** by commit `848eb3b`'s unified `ChatWorkspace`. The
+*backend* routes and behavior described above are still current and
+still the ones `ChatWorkspace` calls; only the frontend presentation
+layer changed. Read `frontend/components/ChatWorkspace.tsx`,
+`frontend/components/AdminModal.tsx`, `frontend/components/FacultyModal.tsx`,
+and `backend/api/chat_routes.py` for the current frontend/chat reality,
+not the older per-page components this session originally wrote (still
+present in git history but no longer referenced by `student`/`admin`/
+`faculty` pages, which now all render `<ChatWorkspace me={me} />`).
+
 ## Verified this session (real evidence)
 
 - Full backend suite: 1590 collected / 1589 passed / 1 skipped / 0
-  failed as of the last run before this handoff.
-- `npx tsc --noEmit` and `npm run build` (frontend): both clean.
+  failed, as of the last run against `e17afd3` (i.e. including the
+  other agent's `ChatWorkspace`/`chat_routes.py` rewrite and this
+  session's fix on top of it).
+- `npx tsc --noEmit` and `npm run build` (frontend): both clean against
+  `e17afd3`.
 - `alembic upgrade head` + `alembic check` against a fresh SQLite DB:
-  applies cleanly, zero drift.
-- **Live browser session** (Playwright, against the real Next.js dev
-  server + real FastAPI backend on SQLite, session cookies minted
-  directly via `backend.auth.session.issue()` since no real Google
-  OAuth credentials are configured in this environment — see below):
-  onboarding form → join by student code → active-experiment banner →
-  Q&A with a real grounded, cited answer and a working follow-up turn
-  → Socratic step verification against the real exp01 Tier 1 checker
-  (correct rejection of wrong field names with a clear message, correct
-  pass-and-advance, a real adaptive hint) → diagnostic submission
-  (correctly flagged `invalid` with a clear reason) → submission history
-  (after the fix, updates live without reload).
-- **Not yet browser-verified this session**: the faculty dashboard's own
-  tabs (Socratic/diagnostic testing, roster promote/demote, coverage,
-  summaries) end-to-end in a real browser — only their backend routes
-  and `tsc`/`next build` were checked; the co-faculty "two faculty on
-  one classroom without replacing each other" scenario from the goal;
-  the admin console's live browser flow.
+  all three migrations (baseline, role_override/reg_no, chat
+  threads/metadata) apply cleanly in order, zero drift.
+- **Live browser session against the NEW unified `ChatWorkspace` UI**
+  (Playwright, real Next.js production server + real FastAPI backend on
+  SQLite, session cookies minted directly via
+  `backend.auth.session.issue()` since no real Google OAuth credentials
+  are configured in this environment — see below): sign-in page (no
+  raw JSON, clean copy) → student session → the new sidebar (classroom
+  selector, experiment selector, chat threads) rendered correctly →
+  **found and fixed a real bug**: the experiment selector was empty and
+  the browser console showed a `403 "Staff or admin only"` on
+  `GET /api/classrooms/experiments`, because that route was still
+  faculty/admin-gated from before `ChatWorkspace` started calling it for
+  every role. Fixed (`current_user` instead of `require_faculty_or_
+  admin`), re-verified live: the dropdown now populates, priority-sorted,
+  ⭐-marked on exp02/03/07/08, and the real experiment title renders in
+  the chat header.
+- Earlier in the session, against the *old* per-page frontend (before
+  `848eb3b` landed): onboarding form → join by student code →
+  active-experiment banner → Q&A with a real grounded, cited answer and
+  a working follow-up turn → Socratic step verification against the
+  real exp01 Tier 1 checker (correct rejection of wrong field names with
+  a clear message, correct pass-and-advance, a real adaptive hint,
+  and a live-confirmed fix for a "Step NaN of" bug) → diagnostic
+  submission (correctly flagged `invalid` with a clear reason) →
+  submission history (after a fix, updates live without reload). These
+  specific pages no longer exist, but the *backend* routes they
+  exercised are unchanged and still passing, and the same behaviors
+  should still be reachable through `ChatWorkspace`'s unified message
+  box (not yet individually re-confirmed there — see next steps).
+- **Not fully browser-verified**: the new `ChatWorkspace` UI's actual
+  chat *send* (a live attempt hit a 500, traced to this session's own
+  disposable scratch SQLite file having stale WAL/schema state, not an
+  app bug — `test_chat_routes.py` passes cleanly against a correctly-
+  built DB, which is the real evidence for that code path); the full
+  Socratic/diagnostic/multi-thread flow through the new unified box;
+  the faculty `AdminModal`/`FacultyModal` flows; the co-faculty and
+  two-faculty-one-classroom scenarios against the new UI. The machine
+  this session ran on became severely memory-constrained (SQLite/OAuth-
+  cookie test users had to be recreated multiple times; server restarts
+  kept getting OOM-killed) partway through this second verification
+  pass — that resource exhaustion, not a code issue, is why this list
+  stops here.
 
 ## Known-safe environment facts for whoever continues
 
@@ -98,16 +157,33 @@ in it (some items may still be open — not re-audited this session).
 
 ## Suggested next steps, roughly in priority order
 
-1. Browser-verify the faculty dashboard tabs live (the goal's item 1
-   faculty flow, and the "two faculty members, one classroom" check)
-   — this session ran out of window before reaching it.
-2. If real Postgres/Google OAuth/LLM-provider credentials become
+1. Browser-verify the new `ChatWorkspace` UI's actual message send
+   (Q&A/Socratic/diagnostic all flow through one unified box now — read
+   `backend/api/chat_routes.py` to understand how it dispatches) using a
+   **freshly created** scratch SQLite DB (delete any old
+   `labtutor.sqlite*` files first, including `-wal`/`-shm` siblings, to
+   avoid the stale-schema 500 this session hit) or, better, a fresh
+   `:memory:`-style temp path per run.
+2. Browser-verify faculty flows through `FacultyModal.tsx` (Socratic/
+   diagnostic testing, class controls, submissions/escalations,
+   summaries) and admin flows through `AdminModal.tsx`, plus the
+   "two faculty members, one classroom" and co-faculty scenarios,
+   against the *current* UI — not the old per-page components.
+3. If real Postgres/Google OAuth/LLM-provider credentials become
    available, perform the goal's item 7 real external checks and
    update the report with genuine evidence instead of "not configured."
-3. Load-test prep (goal item 8, ~70 students / 2 hours) was not done
-   this session — read `infra/loadtest.py` (exists, unclear if
-   up to date) before writing a new plan from scratch.
-4. Re-run the full verification bar (backend suite, tsc, build, alembic
+   (A local Ollama instance was observed running on this machine and is
+   what the LLM client actually fell back to during this session's live
+   checks — that is not the same as verifying the real "hosted" backend.)
+4. Load-test prep (~70 students / 2 hours) was not done this session —
+   read `infra/loadtest.py` (exists, unclear if up to date) before
+   writing a new plan from scratch.
+5. Re-run the full verification bar (backend suite, tsc, build, alembic
    check, golden QA) after any further change, and keep committing in
    small logical units with real verification each time — that pattern
    held for the whole of this session and should continue.
+6. If this machine is still memory-constrained, prefer `next build` +
+   `next start` over `next dev` for any live browser check (much lower
+   footprint), and check `free -h` before spawning uvicorn/next
+   processes — several restart attempts this session were killed by
+   the OS for memory pressure, unrelated to the code itself.
