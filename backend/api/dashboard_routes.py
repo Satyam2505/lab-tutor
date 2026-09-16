@@ -208,6 +208,11 @@ async def resolve_escalation(
     escalation.resolved = True
     escalation.resolved_by = principal.id
     escalation.resolution_note = body.note or None
+    await audit.record(
+        db, audit.ESCALATION_RESOLVED, user_id=principal.id,
+        classroom_id=escalation.classroom_id,
+        detail={"escalation_id": escalation.id, "note": body.note or ""},
+    )
     await db.commit()
     return {"id": escalation.id, "resolved": True}
 

@@ -97,7 +97,13 @@ class ScopeDecision:
     def experiment_label(self) -> str:
         if self.experiment_id is None:
             return "this experiment"
-        topic = ontology.get_topic(self.experiment_id)
+        try:
+            topic = ontology.get_topic(self.experiment_id)
+        except KeyError:
+            # A plugin registered without a matching ontology entry (e.g. a
+            # test fixture, or a future plugin mid-rollout) must not crash
+            # a live Q&A request just to produce a label string.
+            return self.experiment_id
         return topic.title if topic.routable else f"experiment {int(self.experiment_id[3:])}"
 
     @property

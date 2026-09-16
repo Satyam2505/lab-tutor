@@ -80,6 +80,18 @@ export function SocraticPanel({
     );
   }
 
+  if (!state && error) {
+    return (
+      <>
+        <h2>Guided mode</h2>
+        <div className="error">{error}</div>
+        <ActionButton pendingLabel="Retrying…" onAction={start}>
+          Try again
+        </ActionButton>
+      </>
+    );
+  }
+
   if (!state) return <p className="muted">Loading guided mode…</p>;
 
   return (

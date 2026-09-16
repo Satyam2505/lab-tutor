@@ -1,9 +1,11 @@
 """Classroom routes.
 
-Every route re-checks the caller's role through `require_faculty` /
-`require_student` / `require_admin`, and every faculty route additionally
-proves membership of the specific classroom through `FacultyScope` before
-touching it. ADMIN bypasses membership scoping by design (global
+Every route re-checks the caller's role/capability through
+`require_faculty_or_admin` / `require_classroom_faculty` /
+`require_student` / `require_admin`, and every classroom-scoped route
+additionally proves faculty capability for that specific classroom
+(`can_act_as_faculty` -- real faculty, admin, or a promoted co-faculty)
+before touching it. ADMIN bypasses membership scoping by design (global
 authority, per brief §8) but never bypasses `require_admin` itself.
 """
 
@@ -20,7 +22,6 @@ from backend import idempotency
 from backend.auth import (
     Principal,
     require_admin,
-    require_faculty,
     require_faculty_or_admin,
     require_student,
 )
