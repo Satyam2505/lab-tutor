@@ -87,4 +87,48 @@ async def set_user_role(
         "email": user.email,
         "name": user.name,
         "role": body.role.value,
+        "role_override": body.role.value,
+    }
+
+
+@router.delete("/users/{user_id}/role-override")
+async def clear_user_role_override(
+    user_id: str,
+    principal: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Undoes a prior PATCH .../role: the user's role goes back to being
+    purely domain-derived (admin allowlist / faculty domain / else
+    student), re-evaluated on their very next request, same as any account
+    that was never overridden."""
+    if user_id == principal.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An admin cannot change their own role -- ask another admin to do it.",
+        )
+    user = (await db.scalars(select(User).where(User.id == user_id))).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    old_role = _effective_role(user)
+    user.role_override = None
+    new_role = role_for_email(user.email)
+    await audit.record(
+        db,
+        audit.ROLE_CHANGED,
+        user_id=principal.id,
+        detail={
+            "target_user_id": user_id,
+            "old_role": old_role.value,
+            "new_role": new_role.value,
+            "cleared_override": True,
+        },
+    )
+    await db.commit()
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "role": new_role.value,
+        "role_override": None,
     }

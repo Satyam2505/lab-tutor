@@ -27,11 +27,55 @@ export default function ClassroomDashboardPage({
   params: Promise<{ classroomId: string }>;
 }) {
   const { classroomId } = use(params);
-  return (
-    <Shell requireRole={["faculty", "admin"]}>
-      {() => <Dashboard classroomId={classroomId} />}
-    </Shell>
-  );
+  // No platform-role gate here: access to a classroom's faculty dashboard
+  // is classroom-scoped (real faculty, admin, OR a student promoted to
+  // co-faculty for THIS classroom -- see can_act_as_faculty on the
+  // backend), not a global platform role. Any signed-in user is admitted
+  // past Shell; DashboardGate below does the real, classroom-specific
+  // authorization check the same way the backend does.
+  return <Shell>{() => <DashboardGate classroomId={classroomId} />}</Shell>;
+}
+
+function DashboardGate({ classroomId }: { classroomId: string }) {
+  const [access, setAccess] = useState<"checking" | "allowed" | "denied">("checking");
+
+  useEffect(() => {
+    let cancelled = false;
+    // Cheapest existing faculty-gated read for this classroom_id -- if it
+    // 403s/404s, the caller has no faculty capability here (real or
+    // promoted), same authorization the rest of this page relies on.
+    api
+      .get(`/api/classrooms/${classroomId}/roster`)
+      .then(() => {
+        if (!cancelled) setAccess("allowed");
+      })
+      .catch(() => {
+        if (!cancelled) setAccess("denied");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classroomId]);
+
+  if (access === "checking") return <p className="muted">Loading…</p>;
+
+  if (access === "denied") {
+    return (
+      <>
+        <h1>Not available</h1>
+        <p className="muted">
+          You do not have faculty access to this section. If a professor
+          promoted you, ask them to confirm it went through, or try
+          reloading.
+        </p>
+        <a className="btn btn-secondary" href="/">
+          Go back
+        </a>
+      </>
+    );
+  }
+
+  return <Dashboard classroomId={classroomId} />;
 }
 
 type Tab =

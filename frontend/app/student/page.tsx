@@ -68,6 +68,7 @@ function StudentLab() {
                 {classrooms.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
+                    {c.co_faculty ? " (co-faculty)" : ""}
                   </option>
                 ))}
               </select>
@@ -77,6 +78,16 @@ function StudentLab() {
                 ? `Active experiment: ${selected.active_experiment_id}. Your work is tagged with this automatically.`
                 : "Your demonstrator has not set this week's experiment yet."}
             </p>
+            {selected?.co_faculty && (
+              <p style={{ marginTop: 10, marginBottom: 0 }}>
+                <span className="pill" style={{ marginRight: 8 }}>
+                  promoted co-faculty for this section
+                </span>
+                <a className="btn btn-secondary" href={`/faculty/${selected.id}`}>
+                  Open faculty dashboard
+                </a>
+              </p>
+            )}
           </div>
 
           {selected?.active_experiment_id && (

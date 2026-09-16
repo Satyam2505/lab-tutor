@@ -194,20 +194,38 @@ function UserRoleRow({
         </select>
       </td>
       <td>
-        <ActionButton
-          disabled={role === user.role}
-          pendingLabel="Updating…"
-          onAction={async () => {
-            try {
-              await api.patch(`/api/admin/users/${user.id}/role`, { role });
-              onChanged();
-            } catch (e) {
-              onError(e instanceof ApiError ? e.message : String(e));
-            }
-          }}
-        >
-          Update role
-        </ActionButton>
+        <div className="row" style={{ gap: 8 }}>
+          <ActionButton
+            disabled={role === user.role}
+            pendingLabel="Updating…"
+            onAction={async () => {
+              try {
+                await api.patch(`/api/admin/users/${user.id}/role`, { role });
+                onChanged();
+              } catch (e) {
+                onError(e instanceof ApiError ? e.message : String(e));
+              }
+            }}
+          >
+            Update role
+          </ActionButton>
+          {user.role_override !== null && (
+            <ActionButton
+              variant="secondary"
+              pendingLabel="Clearing…"
+              onAction={async () => {
+                try {
+                  await api.del(`/api/admin/users/${user.id}/role-override`);
+                  onChanged();
+                } catch (e) {
+                  onError(e instanceof ApiError ? e.message : String(e));
+                }
+              }}
+            >
+              Clear override
+            </ActionButton>
+          )}
+        </div>
       </td>
     </tr>
   );

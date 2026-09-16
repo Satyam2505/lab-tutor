@@ -126,6 +126,37 @@ class TestAdminRoleChange:
         emails = [u["email"] for u in resp.json()["users"]]
         assert "findme.searchtest@vitstudent.ac.in" in emails
 
+    async def test_admin_can_clear_a_role_override_back_to_domain_derived(
+        self, client, make_user
+    ):
+        _, admin = await make_user("adhyanjain2006@gmail.com", "Admin")
+        _, target = await make_user("cleartest@vitstudent.ac.in")
+        target_id = (await client.get("/api/auth/me", headers=auth(target))).json()["id"]
+
+        overridden = await client.patch(
+            f"/api/admin/users/{target_id}/role",
+            json={"role": "faculty"},
+            headers=auth(admin),
+        )
+        assert overridden.status_code == 200
+        assert (await client.get("/api/auth/me", headers=auth(target))).json()["role"] == "faculty"
+
+        cleared = await client.delete(
+            f"/api/admin/users/{target_id}/role-override", headers=auth(admin)
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["role_override"] is None
+        # Back to domain-derived: @vitstudent.ac.in -> student.
+        assert (await client.get("/api/auth/me", headers=auth(target))).json()["role"] == "student"
+
+    async def test_admin_cannot_clear_their_own_override(self, client, make_user):
+        _, admin = await make_user("adhyanjain2006@gmail.com", "Admin")
+        me = await client.get("/api/auth/me", headers=auth(admin))
+        resp = await client.delete(
+            f"/api/admin/users/{me.json()['id']}/role-override", headers=auth(admin)
+        )
+        assert resp.status_code == 400
+
 
 # --- default-to-student for an unmatched domain -----------------------------
 
