@@ -74,7 +74,14 @@ async def current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is no longer valid"
         )
 
-    # Re-derive, every request. The stored role is display metadata only.
+    # Re-derive, every request. `user.role` (plain column) is display
+    # metadata only and never trusted. `user.role_override`, if an admin
+    # has set one, IS trusted -- it's a deliberate server-side grant, re-
+    # read from the DB on every request just like the domain-derived path,
+    # so it carries the same never-trust-a-stale-value guarantee.
+    if user.role_override is not None:
+        return Principal(id=user.id, email=user.email, name=user.name, role=user.role_override)
+
     try:
         role = role_for_email(user.email)
     except DomainNotPermitted:

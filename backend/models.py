@@ -112,10 +112,22 @@ class User(Base):
     google_sub: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), default="")
+    # Student registration number. Required (app-level, not DB-level) for
+    # STUDENT-effective users, not applicable to faculty/admin -- see
+    # backend/auth/dependencies.py::profile_complete. Not unique: formats
+    # vary and duplicates are tolerated during rollout (product decision).
+    reg_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Persisted for display/audit only. Authorisation ALWAYS re-derives the
     # role from the verified email (admin allowlist, then domain) on the
     # request -- never from here.
     role: Mapped[Role] = mapped_column(Enum(Role), index=True)
+    # Admin-set override of the domain-derived role (see
+    # backend/api/admin_routes.py). NULL means "no override -- derive from
+    # email as usual". When set, current_user() uses this value directly
+    # instead of calling role_for_email(), every request -- same
+    # never-trust-a-stale-value guarantee, just sourced from a DB column an
+    # admin explicitly set instead of purely the email domain.
+    role_override: Mapped[Role | None] = mapped_column(Enum(Role), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

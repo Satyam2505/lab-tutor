@@ -9,16 +9,37 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pydantic import BaseModel, Field
+
 from backend import audit
 from backend.auth import Principal, current_user
 from backend.auth import oauth, session as session_cookie
 from backend.auth.roles import DomainNotPermitted
 from backend.config import get_settings
 from backend.db import get_session
-from backend.models import User
+from backend.models import Role, User
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _profile_complete(role: Role, reg_no: str | None) -> bool:
+    """Students must supply a registration number; faculty/admin don't
+    have one, so they're exempt (confirmed product decision)."""
+    if role is not Role.STUDENT:
+        return True
+    return bool(reg_no and reg_no.strip())
+
+
+def _me_payload(user: User, principal: Principal) -> dict:
+    return {
+        "id": principal.id,
+        "email": principal.email,
+        "name": principal.name,
+        "role": principal.role.value,
+        "reg_no": user.reg_no,
+        "profile_complete": _profile_complete(principal.role, user.reg_no),
+    }
 
 
 @router.get("/login")
@@ -109,7 +130,11 @@ async def callback(
         db.add(user)
     else:
         user.email = identity.email
-        user.name = identity.name
+        # `name` is user-editable via POST /api/auth/complete-profile once
+        # set -- don't clobber it with Google's profile name on every
+        # subsequent login, only backfill it if still empty.
+        if not user.name:
+            user.name = identity.name
         user.role = role
     await db.flush()
 
@@ -139,10 +164,36 @@ async def logout() -> JSONResponse:
 
 
 @router.get("/me")
-async def me(principal: Principal = Depends(current_user)) -> dict:
-    return {
-        "id": principal.id,
-        "email": principal.email,
-        "name": principal.name,
-        "role": principal.role.value,
-    }
+async def me(
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    user = (await db.scalars(select(User).where(User.id == principal.id))).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is no longer valid")
+    return _me_payload(user, principal)
+
+
+class CompleteProfileRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    reg_no: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/complete-profile")
+async def complete_profile(
+    body: CompleteProfileRequest,
+    principal: Principal = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Lets a signed-in user set/edit their display name and (for students)
+    registration number. Not restricted to first-use only -- also how a
+    user corrects a typo later."""
+    user = (await db.scalars(select(User).where(User.id == principal.id))).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is no longer valid")
+    user.name = body.name.strip()
+    reg_no = (body.reg_no or "").strip()
+    user.reg_no = reg_no or None
+    await audit.record(db, audit.PROFILE_COMPLETED, user_id=user.id, detail={"role": principal.role.value})
+    await db.commit()
+    return _me_payload(user, principal)

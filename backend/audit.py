@@ -42,6 +42,10 @@ MEMBERSHIP_REMOVED = "classroom.membership_removed"
 JOIN_CODE_REGENERATED = "classroom.join_code_regenerated"
 SESSION_STARTED = "class_session.started"
 SESSION_ENDED = "class_session.ended"
+ROLE_CHANGED = "admin.role_changed"
+CLASS_FACULTY_PROMOTED = "classroom.faculty_promoted"
+CLASS_FACULTY_DEMOTED = "classroom.faculty_demoted"
+PROFILE_COMPLETED = "auth.profile_completed"
 
 
 async def record(

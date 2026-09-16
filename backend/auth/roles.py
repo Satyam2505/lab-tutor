@@ -30,7 +30,7 @@ def domain_of(email: str) -> str:
 
 
 def role_for_email(email: str, settings: Settings | None = None) -> Role:
-    """Map a verified email to a role, or refuse.
+    """Map a verified email to a role. Never refuses a well-formed email.
 
     Admin is checked FIRST, against a platform-wide allowlist -- admin is
     not a domain-derived role and does not require joining a classroom. If
@@ -38,6 +38,12 @@ def role_for_email(email: str, settings: Settings | None = None) -> Role:
     ever configures overlapping lists, the more privileged reading must
     not be reachable by accident, so the overlap is resolved explicitly
     here rather than by list order.
+
+    Any email that matches neither the faculty nor the student domain
+    defaults to STUDENT -- the two domains are no longer a signup gate,
+    only a role hint. `DomainNotPermitted` is now raised only for a
+    malformed/empty email (no "@"); classroom join codes are the real
+    access control for doing anything once signed in.
     """
     settings = settings or get_settings()
     normalised = (email or "").strip().lower()
@@ -50,9 +56,7 @@ def role_for_email(email: str, settings: Settings | None = None) -> Role:
 
     if domain in settings.faculty_domains:
         return Role.FACULTY
-    if domain in settings.student_domains:
-        return Role.STUDENT
-    raise DomainNotPermitted(email)
+    return Role.STUDENT
 
 
 def is_permitted(email: str, settings: Settings | None = None) -> bool:
