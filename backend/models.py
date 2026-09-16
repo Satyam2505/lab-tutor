@@ -88,6 +88,8 @@ class ActorType(str, enum.Enum):
 class ChatMessageKind(str, enum.Enum):
     SOCRATIC = "socratic"
     QA = "qa"
+    DIAGNOSTIC = "diagnostic"
+
 
 
 class DiagnosisStatus(str, enum.Enum):
@@ -328,6 +330,25 @@ class SocraticAttempt(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class ChatThread(Base):
+    """A user's chat thread for a classroom and experiment."""
+
+    __tablename__ = "chat_threads"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    classroom_id: Mapped[str] = mapped_column(ForeignKey("classrooms.id"), index=True)
+    class_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("class_sessions.id"), nullable=True, index=True
+    )
+    experiment_id: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(255), default="New chat")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
 class ChatMessage(Base):
     """Continuous transcript storage. Written as messages happen.
 
@@ -341,6 +362,9 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    thread_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_threads.id"), nullable=True, index=True
+    )
     kind: Mapped[ChatMessageKind] = mapped_column(
         Enum(ChatMessageKind), default=ChatMessageKind.SOCRATIC, index=True
     )
@@ -358,7 +382,9 @@ class ChatMessage(Base):
     )
     author: Mapped[str] = mapped_column(String(16))  # "student" | "tutor"
     content: Mapped[str] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
 
 
 class SummaryJob(Base):

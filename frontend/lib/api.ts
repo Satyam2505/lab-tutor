@@ -205,7 +205,46 @@ export interface SubmissionResult {
   low_confidence: boolean;
 }
 
+// --- Unified Chat -----------------------------------------------------------
+
+export interface ChatThread {
+  id: string;
+  title: string;
+  classroom_id: string;
+  experiment_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessageMetadata {
+  type?: "qa" | "socratic" | "diagnostic" | "triage";
+  status?: string;
+  tier?: number;
+  action?: string;
+  explanation?: string;
+  citation?: string;
+  citations?: QaCitation[];
+  low_confidence?: boolean;
+  intent?: TutorIntent;
+  passed?: boolean;
+  current_step?: number;
+  total_steps?: number;
+  complete?: boolean;
+  prompt?: string;
+}
+
+
+export interface UnifiedChatMessage {
+  id: string;
+  author: "student" | "tutor";
+  content: string;
+  kind: "qa" | "socratic" | "diagnostic";
+  metadata?: ChatMessageMetadata;
+  created_at: string;
+}
+
 // --- Q&A chat ---------------------------------------------------------------
+
 
 export interface QaCitation {
   text: string;

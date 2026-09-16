@@ -3,6 +3,7 @@
 from backend.api import (
     admin_routes,
     auth_routes,
+    chat_routes,
     classroom_routes,
     dashboard_routes,
     diagnostic_routes,
@@ -16,6 +17,7 @@ ROUTERS = [
     auth_routes.router,
     admin_routes.router,
     classroom_routes.router,
+    chat_routes.router,
     qa_routes.router,
     socratic_routes.router,
     diagnostic_routes.router,
@@ -23,3 +25,4 @@ ROUTERS = [
 ]
 
 __all__ = ["ROUTERS"]
+
