@@ -234,18 +234,30 @@ function Submissions({
 }) {
   const [rows, setRows] = useState<DashboardSubmission[] | null>(null);
   const [filter, setFilter] = useState("");
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     const query = filter ? `?status=${encodeURIComponent(filter)}` : "";
+    setLoadError("");
     api
       .get<{ submissions: DashboardSubmission[] }>(
         `/api/dashboard/classrooms/${classroomId}/submissions${query}`,
       )
       .then((d) => setRows(d.submissions))
-      .catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+      .catch((e) => {
+        const message = e instanceof ApiError ? e.message : String(e);
+        setLoadError(message);
+        onError(message);
+      });
   }, [classroomId, filter, onError]);
 
-  if (rows === null) return <p className="muted">Loading…</p>;
+  if (rows === null) {
+    return loadError ? (
+      <div className="error">{loadError}</div>
+    ) : (
+      <p className="muted">Loading…</p>
+    );
+  }
 
   return (
     <>
@@ -305,6 +317,7 @@ function Escalations({
 }) {
   const [rows, setRows] = useState<Escalation[] | null>(null);
   const [unresolvedOnly, setUnresolvedOnly] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   const load = useCallback(async () => {
     const d = await api.get<{ escalations: Escalation[] }>(
@@ -314,10 +327,21 @@ function Escalations({
   }, [classroomId, unresolvedOnly]);
 
   useEffect(() => {
-    load().catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+    setLoadError("");
+    load().catch((e) => {
+      const message = e instanceof ApiError ? e.message : String(e);
+      setLoadError(message);
+      onError(message);
+    });
   }, [load, onError]);
 
-  if (rows === null) return <p className="muted">Loading…</p>;
+  if (rows === null) {
+    return loadError ? (
+      <div className="error">{loadError}</div>
+    ) : (
+      <p className="muted">Loading…</p>
+    );
+  }
 
   return (
     <>
@@ -389,6 +413,7 @@ function Summaries({
   const [sessionId, setSessionId] = useState("");
   const [rows, setRows] = useState<StudentSummary[] | null>(null);
   const [job, setJob] = useState<SummaryJob | null>(null);
+  const [loadError, setLoadError] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -400,7 +425,12 @@ function Summaries({
         setSessions(d.sessions);
         setSessionId((current) => current || d.sessions[0]?.id || "");
       })
-      .catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+      .catch((e) => {
+        const message = e instanceof ApiError ? e.message : String(e);
+        setSessions([]);
+        setLoadError(message);
+        onError(message);
+      });
   }, [classroomId, onError]);
 
   const load = useCallback(async () => {
@@ -416,7 +446,12 @@ function Summaries({
 
   useEffect(() => {
     setRows(null);
-    load().catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+    setLoadError("");
+    load().catch((e) => {
+      const message = e instanceof ApiError ? e.message : String(e);
+      setLoadError(message);
+      onError(message);
+    });
   }, [load, onError]);
 
   // Poll while a job is running. At ~70 students this takes long enough
@@ -505,7 +540,11 @@ function Summaries({
       </div>
 
       {rows === null ? (
-        <p className="muted">Loading…</p>
+        loadError ? (
+          <div className="error">{loadError}</div>
+        ) : (
+          <p className="muted">Loading…</p>
+        )
       ) : rows.length === 0 ? (
         <p className="muted">No summaries generated yet.</p>
       ) : (
@@ -541,6 +580,7 @@ function Roster({
 }) {
   const [students, setStudents] = useState<RosterStudent[] | null>(null);
   const [faculty, setFaculty] = useState<RosterFaculty[] | null>(null);
+  const [loadError, setLoadError] = useState("");
 
   const load = useCallback(async () => {
     const [s, f] = await Promise.all([
@@ -552,10 +592,21 @@ function Roster({
   }, [classroomId]);
 
   useEffect(() => {
-    load().catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+    setLoadError("");
+    load().catch((e) => {
+      const message = e instanceof ApiError ? e.message : String(e);
+      setLoadError(message);
+      onError(message);
+    });
   }, [load, onError]);
 
-  if (students === null || faculty === null) return <p className="muted">Loading…</p>;
+  if (students === null || faculty === null) {
+    return loadError ? (
+      <div className="error">{loadError}</div>
+    ) : (
+      <p className="muted">Loading…</p>
+    );
+  }
 
   return (
     <>
@@ -674,15 +725,27 @@ function Coverage({
   onError: (m: string) => void;
 }) {
   const [rows, setRows] = useState<StudentCoverage[] | null>(null);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
+    setLoadError("");
     api
       .get<{ students: StudentCoverage[] }>(`/api/dashboard/classrooms/${classroomId}/coverage`)
       .then((d) => setRows(d.students))
-      .catch((e) => onError(e instanceof ApiError ? e.message : String(e)));
+      .catch((e) => {
+        const message = e instanceof ApiError ? e.message : String(e);
+        setLoadError(message);
+        onError(message);
+      });
   }, [classroomId, onError]);
 
-  if (rows === null) return <p className="muted">Loading…</p>;
+  if (rows === null) {
+    return loadError ? (
+      <div className="error">{loadError}</div>
+    ) : (
+      <p className="muted">Loading…</p>
+    );
+  }
 
   const experiments = Array.from(
     new Set(rows.flatMap((r) => r.topics.map((t) => t.experiment_id))),
