@@ -119,19 +119,28 @@ present in git history but no longer referenced by `student`/`admin`/
   exercised are unchanged and still passing, and the same behaviors
   should still be reachable through `ChatWorkspace`'s unified message
   box (not yet individually re-confirmed there — see next steps).
-- **Not fully browser-verified**: the new `ChatWorkspace` UI's actual
-  chat *send* (a live attempt hit a 500, traced to this session's own
-  disposable scratch SQLite file having stale WAL/schema state, not an
-  app bug — `test_chat_routes.py` passes cleanly against a correctly-
-  built DB, which is the real evidence for that code path); the full
-  Socratic/diagnostic/multi-thread flow through the new unified box;
-  the faculty `AdminModal`/`FacultyModal` flows; the co-faculty and
-  two-faculty-one-classroom scenarios against the new UI. The machine
-  this session ran on became severely memory-constrained (SQLite/OAuth-
-  cookie test users had to be recreated multiple times; server restarts
-  kept getting OOM-killed) partway through this second verification
-  pass — that resource exhaustion, not a code issue, is why this list
-  stops here.
+- **Update — chat send re-verified live, successfully**: after rebuilding
+  the frontend with `BACKEND_INTERNAL_URL` actually baked in (a plain
+  `npm run build` without that env var silently produces a build with no
+  API rewrite at all — costly to rediscover, see the environment note
+  below) and starting both servers against a genuinely fresh scratch
+  SQLite DB (the earlier 500 really was just stale WAL/schema state in
+  a reused scratch file, confirmed by the DB producing the *old*
+  `chat_messages` schema even though `models.py` was current), a real
+  Q&A message ("What is the principle and formula...") produced a
+  grounded answer with a manual citation in a new chat thread, and a
+  real diagnostic-style message ("Here are my readings: ecell=1.1,
+  reported_value=-212.3") produced a genuine deterministic `PASS (Tier
+  1)` result with a manual citation — confirming the unified chat
+  correctly dispatches both Q&A and diagnostic paths, and that Tier 1
+  correctness is still computed deterministically, not by the LLM.
+  Multi-thread chat (new thread per topic, old thread still listed) also
+  confirmed working live.
+- **Still not browser-verified**: the full Socratic flow through the
+  unified box (only Q&A and one-shot diagnostic were exercised); the
+  faculty `AdminModal`/`FacultyModal` flows; the co-faculty and
+  two-faculty-one-classroom scenarios against the new UI. This session's
+  time/cost ran out before reaching them — see next steps.
 
 ## Known-safe environment facts for whoever continues
 
@@ -157,33 +166,40 @@ present in git history but no longer referenced by `student`/`admin`/
 
 ## Suggested next steps, roughly in priority order
 
-1. Browser-verify the new `ChatWorkspace` UI's actual message send
-   (Q&A/Socratic/diagnostic all flow through one unified box now — read
-   `backend/api/chat_routes.py` to understand how it dispatches) using a
-   **freshly created** scratch SQLite DB (delete any old
-   `labtutor.sqlite*` files first, including `-wal`/`-shm` siblings, to
-   avoid the stale-schema 500 this session hit) or, better, a fresh
-   `:memory:`-style temp path per run.
-2. Browser-verify faculty flows through `FacultyModal.tsx` (Socratic/
-   diagnostic testing, class controls, submissions/escalations,
-   summaries) and admin flows through `AdminModal.tsx`, plus the
-   "two faculty members, one classroom" and co-faculty scenarios,
-   against the *current* UI — not the old per-page components.
-3. If real Postgres/Google OAuth/LLM-provider credentials become
+1. Browser-verify the full Socratic flow through the unified
+   `ChatWorkspace` box (Q&A and one-shot diagnostic are now confirmed
+   working live; Socratic step-by-step is not yet), and the faculty
+   `FacultyModal.tsx` (Socratic/diagnostic testing, class controls,
+   submissions/escalations, summaries) and admin `AdminModal.tsx` flows,
+   plus the "two faculty members, one classroom" and co-faculty
+   scenarios, against the *current* UI.
+2. If real Postgres/Google OAuth/LLM-provider credentials become
    available, perform the goal's item 7 real external checks and
    update the report with genuine evidence instead of "not configured."
    (A local Ollama instance was observed running on this machine and is
    what the LLM client actually fell back to during this session's live
    checks — that is not the same as verifying the real "hosted" backend.)
-4. Load-test prep (~70 students / 2 hours) was not done this session —
+3. Load-test prep (~70 students / 2 hours) was not done this session —
    read `infra/loadtest.py` (exists, unclear if up to date) before
    writing a new plan from scratch.
-5. Re-run the full verification bar (backend suite, tsc, build, alembic
+4. Re-run the full verification bar (backend suite, tsc, build, alembic
    check, golden QA) after any further change, and keep committing in
    small logical units with real verification each time — that pattern
    held for the whole of this session and should continue.
-6. If this machine is still memory-constrained, prefer `next build` +
-   `next start` over `next dev` for any live browser check (much lower
-   footprint), and check `free -h` before spawning uvicorn/next
-   processes — several restart attempts this session were killed by
-   the OS for memory pressure, unrelated to the code itself.
+5. Environment gotchas hit this session, for whoever continues:
+   - `next build` without `BACKEND_INTERNAL_URL` set silently produces a
+     build with *no* `/api/*` rewrite at all (the rewrite is baked in at
+     build time, not evaluated per-request) — always
+     `BACKEND_INTERNAL_URL=http://127.0.0.1:<port> npm run build` before
+     `next start` for any local live check, and don't run a plain
+     `npm run build` afterward (it'll silently strip the rewrite again).
+   - Prefer `next build` + `next start` over `next dev` for live
+     checks — much lower memory footprint.
+   - Delete `*.sqlite`, `*.sqlite-wal` and `*.sqlite-shm` together
+     (not just the base file) when resetting a scratch dev DB — a
+     leftover WAL file can resurrect old rows/schema into a "fresh"
+     file and reproduce confusing stale-schema errors.
+   - This machine ran very low on free memory during this session
+     (repeated OOM-kills on server restarts, `free -h` showed under
+     600Mi free with ~19Gi/22Gi swap used); check `free -h` before
+     spawning uvicorn/next processes.
