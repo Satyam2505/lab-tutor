@@ -359,6 +359,7 @@ export function ChatWorkspace({ me }: { me: Me }) {
               onChange={(e) => {
                 const c = classrooms.find((x) => x.id === e.target.value);
                 if (c) setActiveClassroom(c);
+                setError("");
               }}
               style={{
                 backgroundColor: "var(--sidebar-surface)",
@@ -397,7 +398,10 @@ export function ChatWorkspace({ me }: { me: Me }) {
           </span>
           <select
             value={selectedExpId}
-            onChange={(e) => setSelectedExpId(e.target.value)}
+            onChange={(e) => {
+              setSelectedExpId(e.target.value);
+              setError("");
+            }}
             style={{
               backgroundColor: "var(--sidebar-surface)",
               borderColor: "var(--sidebar-border)",

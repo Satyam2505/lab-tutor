@@ -410,9 +410,24 @@ async def _handle_socratic_attempt(
             "complete": False,
         }
 
+    current_step_spec = steps[session.current_step]
     submitted = extracted.values.get("reported_value")
     if submitted is None:
         submitted = extracted.values.get("value")
+    if submitted is None:
+        # A real chat message conflates the step's own required inputs
+        # and the student's answer into one flat dict ("zn_conc=1.0,
+        # cu_conc=1.0, temperature_k=298, ecell=1.10") -- POST /api/
+        # socratic/session/{id}/attempt keeps those as separate `data`/
+        # `value` fields, but chat has no such split. Whatever numeric
+        # key ISN'T one of this step's declared `requires` is the
+        # student's reported answer for it.
+        extra_keys = [
+            k for k, v in extracted.values.items()
+            if k not in current_step_spec.requires and isinstance(v, (int, float))
+        ]
+        if len(extra_keys) == 1:
+            submitted = extracted.values[extra_keys[0]]
     if submitted is None and len(extracted.values) == 1:
         submitted = next(iter(extracted.values.values()))
 
