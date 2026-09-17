@@ -31,7 +31,7 @@ from backend.models import (
     SummaryJob,
     User,
 )
-from backend.summaries import run_job, start_job_for_session
+from backend.summaries import run_job, start_job_for_session, track_background_task
 from backend.summaries.coverage import compute_topic_coverage
 
 log = logging.getLogger(__name__)
@@ -318,7 +318,8 @@ async def generate_summaries(
 
     from backend.config import get_settings
 
-    asyncio.create_task(run_job(job.id, student_ids, workers=get_settings().summary_workers))
+    task = asyncio.create_task(run_job(job.id, student_ids, workers=get_settings().summary_workers))
+    track_background_task(task)
     return payload
 
 

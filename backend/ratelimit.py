@@ -4,12 +4,17 @@ Protects the inference backend from a single user hammering an endpoint,
 and from ~70 students all arriving at once. Limits come from the
 environment (`LABTUTOR_RATELIMIT_*`).
 
-KNOWN LIMITATION: the window is held in this process's memory. With one
-backend container -- the documented pilot topology -- that is exact. Run
-more than one replica and each enforces the limit separately, so the
-effective limit multiplies by the replica count. Moving this to Redis is
-the fix, and is listed in README "Known limitations" rather than being
-quietly assumed away.
+KNOWN LIMITATION: the window is held in this process's memory, keyed
+per OS process, not per container. `infra/backend.Dockerfile` runs
+`uvicorn --workers 2`, so even the single-container pilot topology
+already has two independent worker processes, each with its own
+un-shared limiter state -- the effective limit for a given user is
+already up to 2x the configured value today, not only under a
+hypothetical multi-replica scale-out. Add another replica and it
+multiplies again. Moving this to a shared store (e.g. Redis) is the
+fix, and is listed in README "Known limitations" rather than being
+quietly assumed away -- verify the actual effective rate under load
+before the pilot, don't just trust the configured number.
 """
 
 from __future__ import annotations

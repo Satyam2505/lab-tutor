@@ -62,6 +62,18 @@ log = logging.getLogger(__name__)
 #: event loop cannot garbage-collect them mid-flight.
 _background_tasks: set[asyncio.Task] = set()
 
+
+def track_background_task(task: asyncio.Task) -> None:
+    """Every `asyncio.create_task(run_job(...))` call site must route
+    through this -- a task with no strong reference anywhere can be
+    garbage-collected by the event loop before it finishes, silently
+    dropping the rest of that summary batch. Found via a deployment-
+    readiness audit: the manual "regenerate summaries" route
+    (backend/api/dashboard_routes.py) created its task without this
+    protection, unlike the automatic end-of-class path below."""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 SANITY_SYSTEM_PROMPT = """\
 You are screening a lab chat transcript before a short summary is written \
 from it. Reply with exactly one word on the first line: OK or FLAG.
@@ -143,8 +155,7 @@ async def enqueue_for_session(db, *, class_session_id: str, requested_by: str) -
     from backend.config import get_settings
 
     task = asyncio.create_task(run_job(job.id, student_ids, workers=get_settings().summary_workers))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    track_background_task(task)
     return job
 
 

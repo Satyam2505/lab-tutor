@@ -7,7 +7,12 @@ never generated mid-session. Auto-triggered on class-session end
 for the batching rules.
 """
 
-from backend.summaries.jobs import enqueue_for_session, run_job, start_job_for_session
+from backend.summaries.jobs import (
+    enqueue_for_session,
+    run_job,
+    start_job_for_session,
+    track_background_task,
+)
 from backend.summaries.trajectory import (
     Trajectory,
     build_trajectory,
@@ -21,4 +26,5 @@ __all__ = [
     "enqueue_for_session",
     "run_job",
     "start_job_for_session",
+    "track_background_task",
 ]

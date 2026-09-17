@@ -325,10 +325,14 @@ be reported as such when the pilot is written up:
 
 Genuine gaps, listed because a pilot report needs them:
 
-- **Rate limiting is per process.** The sliding window lives in the
-  backend's memory. With the documented single-container topology that is
-  exact; run more than one replica and each enforces the limit
-  separately. Redis is the fix.
+- **Rate limiting is per process, not per container.** The sliding
+  window lives in the backend's memory. `infra/backend.Dockerfile` runs
+  `uvicorn --workers 2`, so even the single-container pilot topology
+  already has two independent worker processes with un-shared limiter
+  state -- the effective limit is already up to 2x the configured value
+  today. Run more than one replica and it multiplies again. Redis is
+  the fix; verify the actual effective rate under load before the
+  pilot rather than trusting the configured number.
 - **Summary jobs are in-process.** They run in FastAPI background tasks,
   so a restart mid-batch loses progress for that batch. Re-running is
   cheap and idempotent — already-summarised students are skipped — but
