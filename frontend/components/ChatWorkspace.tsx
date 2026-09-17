@@ -652,11 +652,12 @@ export function ChatWorkspace({ me }: { me: Me }) {
                 <span>Enter Classroom Join Code</span>
                 <input
                   type="text"
-                  placeholder="e.g. ABCDE-FGHIJ-KLMNO-PQRST"
+                  placeholder="e.g. 54321"
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value)}
                   className="mono"
                 />
+
               </label>
               <button className="btn btn-primary" style={{ width: "100%" }} onClick={handleJoinClassroom}>
                 Join Classroom

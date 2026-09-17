@@ -70,9 +70,8 @@ class NoActiveSession(ClassroomError):
 
 
 def generate_join_code() -> str:
-    """A high-entropy code, grouped for reading aloud in a lab."""
-    raw = "".join(secrets.choice(_ALPHABET) for _ in range(20))
-    return "-".join(raw[i : i + 5] for i in range(0, 20, 5))
+    """A 5-digit numeric PIN for classroom join."""
+    return "".join(secrets.choice("0123456789") for _ in range(5))
 
 
 @dataclass(frozen=True)
@@ -85,12 +84,13 @@ class ClassroomView:
 
 
 async def _unique_code(db: AsyncSession, column) -> str:
-    for _ in range(5):
+    for _ in range(50):
         code = generate_join_code()
         clash = (await db.scalars(select(Classroom).where(column == code))).first()
         if clash is None:
             return code
     raise ClassroomError("Could not generate a unique join code")  # pragma: no cover
+
 
 
 async def create_classroom(

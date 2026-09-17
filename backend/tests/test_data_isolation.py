@@ -285,10 +285,9 @@ class TestClassroomMechanics:
         _, prof = await make_user("prof@vit.ac.in")
         classroom = await _make_classroom(client, prof, experiment_id=None)
         code = classroom["student_join_code"]
-        alphabet_chars = [c for c in code if c != "-"]
-        assert len(alphabet_chars) == 20, "expected 20 code characters"
-        # 31-symbol alphabet, 20 characters -> ~99 bits. Well past guessable.
-        assert len(set(alphabet_chars)) > 5
+        assert len(code) == 5, "expected 5-digit PIN"
+        assert code.isdigit()
+
 
     async def test_join_codes_are_unique_across_classrooms(self, client, make_user):
         _, prof = await make_user("prof@vit.ac.in")
