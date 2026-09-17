@@ -14,6 +14,7 @@ endless rephrasing all fail identically.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from backend.answer_gate import (
@@ -27,6 +28,23 @@ from backend.rag.retrieval import retrieve
 from backend.socratic_engine import triage
 
 log = logging.getLogger(__name__)
+
+# Weaker local models sometimes ignore "no preamble" and narrate their own
+# task instead of just doing it (e.g. "Here's a re-worded hint for the
+# student: ..." followed by a restatement of the instruction). Caught here
+# rather than relied on in the prompt, matching this pipeline's existing
+# "reject on doubt, fall back to the deterministic text" posture.
+_META_PREAMBLE = re.compile(
+    r"^\s*(here'?s|here is|sure[,!]?|certainly[,!]?|of course[,!]?|"
+    r"as an ai\b|i cannot\b|i can'?t\b)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_meta_commentary(text: str) -> bool:
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+    return bool(_META_PREAMBLE.match(first_line))
+
 
 SYSTEM_PROMPT = """\
 You are a chemistry lab tutor helping a first-year student on one step \
@@ -151,6 +169,9 @@ async def tutor_reply(
         text, source = fallback, "template"
 
     if not text.strip():
+        text, source = fallback, "template"
+    elif source == "llm" and _looks_like_meta_commentary(text):
+        log.warning("Rejected a tutor reply that narrated its own task; using the hint verbatim")
         text, source = fallback, "template"
 
     # Outbound gate: a hint may echo numbers the student or the step
