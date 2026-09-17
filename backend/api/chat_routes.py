@@ -161,6 +161,22 @@ def _extract_numbers_dict(text: str) -> dict[str, Any]:
     return result
 
 
+_GUIDANCE_RE = re.compile(
+    r"\b(guide me|guidance|walk me through|help me (do|with|through)|"
+    r"how do i (start|begin|do this|proceed)|what.s (the )?next step|"
+    r"which step|step \d+|next step|stuck|i.m confused|i don.t know how)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_guidance_request(text: str) -> bool:
+    """Deterministic (no LLM) check for "help me work through this
+    experiment" phrasing, as opposed to a general factual question --
+    only the former should silently enrol a first-time message into a
+    guided Socratic session."""
+    return bool(_GUIDANCE_RE.search(text))
+
+
 
 @router.get("/threads")
 async def list_threads(
@@ -395,6 +411,8 @@ async def _handle_socratic_attempt(
         }
 
     submitted = extracted.values.get("reported_value")
+    if submitted is None:
+        submitted = extracted.values.get("value")
     if submitted is None and len(extracted.values) == 1:
         submitted = next(iter(extracted.values.values()))
 
@@ -770,12 +788,22 @@ async def send_message(
             reply_text, msg_kind, meta = await _handle_final_diagnostic(
                 db, principal, plugin, actor_type, body, class_session_id, experiment_id
             )
-        elif plugin is not None and has_socratic_steps and socratic_session is None:
+        elif (
+            plugin is not None
+            and has_socratic_steps
+            and socratic_session is None
+            and _looks_like_guidance_request(body.message)
+        ):
             # 4b. No data, no guided session yet, but this experiment has
-            # Socratic steps configured: this is the first "help me
-            # through this" message, so guided mode starts now, at step
-            # one, the same lazy get-or-create POST /api/socratic/session
-            # does.
+            # Socratic steps configured AND the message reads as a
+            # guidance request ("guide me", "help me through this",
+            # "what's step 2") rather than a general question -- this is
+            # the first "help me through this" message, so guided mode
+            # starts now, at step one, the same lazy get-or-create
+            # POST /api/socratic/session does. A plain factual question
+            # ("what is X used for?") falls through to plain Q&A instead
+            # (branch 5) -- asking about the subject should never itself
+            # enrol the student in a guided walkthrough.
             socratic_session = await _start_socratic_session(
                 db, principal.id, body.classroom_id, class_session_id, experiment_id, actor_type
             )
