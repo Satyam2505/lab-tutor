@@ -30,20 +30,38 @@ from backend.socratic_engine import triage
 log = logging.getLogger(__name__)
 
 # Weaker local models sometimes ignore "no preamble" and narrate their own
-# task instead of just doing it (e.g. "Here's a re-worded hint for the
-# student: ..." followed by a restatement of the instruction). Caught here
-# rather than relied on in the prompt, matching this pipeline's existing
-# "reject on doubt, fall back to the deterministic text" posture.
+# task instead of just doing it -- either as an opening preamble ("Here's a
+# re-worded hint for the student: ...") or, just as often, buried mid-reply
+# after some in-character text ("Let's break down Step 1 together ... Here's
+# a re-worded version of the supplied hint: ..."). Caught here rather than
+# relied on in the prompt, matching this pipeline's existing "reject on
+# doubt, fall back to the deterministic text" posture.
 _META_PREAMBLE = re.compile(
     r"^\s*(here'?s|here is|sure[,!]?|certainly[,!]?|of course[,!]?|"
     r"as an ai\b|i cannot\b|i can'?t\b)\b",
     re.IGNORECASE,
 )
+_META_ANYWHERE = re.compile(
+    r"\b(re-?worded (version|hint)|let'?s break (down )?(this|it|.*step)( down)?|"
+    r"here'?s a re-?worded|reword(ed|ing) the (hint|supplied hint))\b",
+    re.IGNORECASE,
+)
+# The model is never supposed to see or echo its own prompt's section
+# labels -- if one shows up verbatim, the reply is quoting the scaffolding
+# instead of answering, a stronger and more literal signal than the
+# phrasing-based patterns above.
+_LEAKED_PROMPT_LABELS = re.compile(
+    r"\b(SUPPLIED HINT|MANUAL EXTRACT|UNTRUSTED STUDENT MESSAGE)\b"
+)
 
 
 def _looks_like_meta_commentary(text: str) -> bool:
     first_line = text.strip().splitlines()[0] if text.strip() else ""
-    return bool(_META_PREAMBLE.match(first_line))
+    return (
+        bool(_META_PREAMBLE.match(first_line))
+        or bool(_META_ANYWHERE.search(text))
+        or bool(_LEAKED_PROMPT_LABELS.search(text))
+    )
 
 
 SYSTEM_PROMPT = """\
