@@ -192,3 +192,27 @@ def short_circuits(intent: Intent) -> bool:
 def needs_staff_attention(intent: Intent) -> bool:
     """Whether staff should be able to see that this happened."""
     return intent in (Intent.SAFETY_INCIDENT, Intent.SAFETY_QUESTION, Intent.DISTRESS)
+
+
+_GUIDANCE_RE = re.compile(
+    r"\b(guide me|guidance|walk me through|help me (do|with|through)|"
+    r"how do i (start|begin|do this|proceed)|what.s (the )?next step|"
+    r"which step|step \d+|next step|stuck|i.m confused|i don.t know how)\b",
+    re.IGNORECASE,
+)
+
+
+def is_guidance_request(text: str) -> bool:
+    """Deterministic (no LLM) check for "help me work through this
+    experiment / give me the current step's hint" phrasing, as opposed to
+    a general factual question.
+
+    Two call sites lean on this: `chat_routes` uses it to decide whether a
+    first-time message should silently enrol a student into a guided
+    Socratic session (only a guidance request should), and
+    `socratic_engine.chat` uses its negation to decide whether a *failed*
+    model call should fall back to the current step's hint or to a real
+    grounded answer -- repeating an unrelated hint at someone who asked
+    "what does V_inf mean" is not a fallback, it's a non-answer.
+    """
+    return bool(_GUIDANCE_RE.search(text))

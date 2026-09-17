@@ -76,6 +76,39 @@ def derive_title(text: str) -> str:
     return cleaned[:40].rstrip() + "…"
 
 
+#: A student treats this as one continuous conversation, the same way a
+#: ChatGPT-style thread works -- so a follow-up ("what does V_inf mean in
+#: that formula?") needs the model to have seen the earlier turn. Bounded
+#: in both message count and per-message length so a long-running thread
+#: cannot silently balloon a prompt.
+MAX_HISTORY_MESSAGES = 12
+MAX_HISTORY_CHARS_PER_MESSAGE = 500
+
+
+async def _recent_history_text(db: AsyncSession, thread_id: str) -> str:
+    """Up to the last `MAX_HISTORY_MESSAGES` turns of this thread, oldest
+    first, as plain STUDENT:/TUTOR: lines. Called before the current
+    turn's message is inserted, so it never includes it. This is context
+    for phrasing only -- it never changes what Tier 1 computes or what a
+    Socratic reply is permitted to reveal (see backend/answer_gate)."""
+    rows = list(
+        (
+            await db.scalars(
+                select(ChatMessage)
+                .where(ChatMessage.thread_id == thread_id)
+                .order_by(ChatMessage.created_at.desc())
+                .limit(MAX_HISTORY_MESSAGES)
+            )
+        ).all()
+    )
+    rows.reverse()
+    lines = [
+        f"{'STUDENT' if m.author == 'student' else 'TUTOR'}: {m.content[:MAX_HISTORY_CHARS_PER_MESSAGE]}"
+        for m in rows
+    ]
+    return "\n".join(lines)
+
+
 class CreateThreadRequest(BaseModel):
     classroom_id: str
     experiment_id: str
@@ -161,20 +194,6 @@ def _extract_numbers_dict(text: str) -> dict[str, Any]:
     return result
 
 
-_GUIDANCE_RE = re.compile(
-    r"\b(guide me|guidance|walk me through|help me (do|with|through)|"
-    r"how do i (start|begin|do this|proceed)|what.s (the )?next step|"
-    r"which step|step \d+|next step|stuck|i.m confused|i don.t know how)\b",
-    re.IGNORECASE,
-)
-
-
-def _looks_like_guidance_request(text: str) -> bool:
-    """Deterministic (no LLM) check for "help me work through this
-    experiment" phrasing, as opposed to a general factual question --
-    only the former should silently enrol a first-time message into a
-    guided Socratic session."""
-    return bool(_GUIDANCE_RE.search(text))
 
 
 
@@ -518,6 +537,7 @@ async def _handle_socratic_chat_turn(
     session: SocraticSession,
     raw_message: str,
     intent: triage.Intent,
+    history_text: str = "",
 ) -> tuple[str, ChatMessageKind, dict]:
     """A question/nudge/confusion turn during an active, incomplete
     guided session -- phrased by `tutor_reply`, which is structurally
@@ -550,6 +570,8 @@ async def _handle_socratic_chat_turn(
         attempts_on_this_step=attempts_on_step,
         all_steps_complete=session.all_steps_complete,
         retrieval_query=f"{plugin.title} {step.key}",
+        conversation_history=history_text,
+        experiment_id=session.experiment_id,
     )
 
     if reply.redacted:
@@ -722,6 +744,10 @@ async def send_message(
     elif thread.title == "New chat":
         thread.title = derive_title(body.message)
 
+    # Snapshot the conversation so far, before this turn's own message is
+    # inserted -- see MAX_HISTORY_MESSAGES.
+    history_text = await _recent_history_text(db, thread.id)
+
     # Record student message
     student_msg = ChatMessage(
         thread_id=thread.id,
@@ -796,7 +822,7 @@ async def send_message(
                 # the model) or answers a genuine question grounded in
                 # the manual, and structurally cannot reveal the answer.
                 reply_text, msg_kind, meta = await _handle_socratic_chat_turn(
-                    db, principal, plugin, socratic_session, body.message, intent
+                    db, principal, plugin, socratic_session, body.message, intent, history_text
                 )
         elif plugin is not None and extracted_dict:
             # 4. No guided session exists yet, or it already finished, and
@@ -812,7 +838,7 @@ async def send_message(
             plugin is not None
             and has_socratic_steps
             and socratic_session is None
-            and _looks_like_guidance_request(body.message)
+            and triage.is_guidance_request(body.message)
         ):
             # 4b. No data, no guided session yet, but this experiment has
             # Socratic steps configured AND the message reads as a
@@ -828,12 +854,14 @@ async def send_message(
                 db, principal.id, body.classroom_id, class_session_id, experiment_id, actor_type
             )
             reply_text, msg_kind, meta = await _handle_socratic_chat_turn(
-                db, principal, plugin, socratic_session, body.message, intent
+                db, principal, plugin, socratic_session, body.message, intent, history_text
             )
         else:
             # 5. Plain grounded Q&A -- theory, procedure, troubleshooting,
             # software questions, or a follow-up once guided mode is done.
-            result = await answer_question(body.message, active_experiment=experiment_id)
+            result = await answer_question(
+                body.message, active_experiment=experiment_id, conversation_history=history_text
+            )
             reply_text = result.text
             msg_kind = ChatMessageKind.QA
             meta = {

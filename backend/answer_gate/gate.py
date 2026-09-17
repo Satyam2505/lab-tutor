@@ -20,6 +20,7 @@ ALLOWED_SOCRATIC_FIELDS: frozenset[str] = frozenset(
         "hint_text",
         "manual_excerpt",
         "attempts_on_this_step",
+        "conversation_history",
     }
 )
 
@@ -61,6 +62,12 @@ class SocraticLLMInput:
     hint_text: str = ""
     manual_excerpt: str = ""
     attempts_on_this_step: int = 0
+    #: Prior turns of this same chat thread, plain text, context only. It
+    #: can never carry the final answer because nothing upstream of this
+    #: object ever computes one to put here (see property 1 in the
+    #: package docstring) -- it is exactly the same class of text as
+    #: `student_message`, just from earlier turns.
+    conversation_history: str = ""
 
     def as_prompt_fields(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -110,6 +117,7 @@ def prepare_socratic_input(
     hint_text: str = "",
     manual_excerpt: str = "",
     attempts_on_this_step: int = 0,
+    conversation_history: str = "",
 ) -> SocraticLLMInput:
     """Build the only object permitted into a Socratic LLM prompt.
 
@@ -126,6 +134,7 @@ def prepare_socratic_input(
         hint_text=hint_text,
         manual_excerpt=manual_excerpt,
         attempts_on_this_step=attempts_on_this_step,
+        conversation_history=conversation_history,
     )
 
 
