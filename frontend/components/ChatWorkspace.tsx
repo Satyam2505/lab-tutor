@@ -418,9 +418,8 @@ export function ChatWorkspace({ me }: { me: Me }) {
               fontSize: "0.85rem",
             }}
           >
-            {experiments.map((exp) => (
+            {[...experiments].sort((a, b) => a.id.localeCompare(b.id)).map((exp) => (
               <option key={exp.id} value={exp.id}>
-                {["exp02", "exp03", "exp07", "exp08"].includes(exp.id) ? "⭐ " : ""}
                 {exp.id.toUpperCase()}: {exp.title}
               </option>
             ))}
