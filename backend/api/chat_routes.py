@@ -1,7 +1,20 @@
 """Unified AI Chat routes: modern ChatGPT-style multi-thread chat interface.
 
-Integrates grounded retrieval Q&A, Socratic step-verification nudges, and
-deterministic Tier 1-3 diagnostic checking behind a single clean chat surface.
+Integrates grounded retrieval Q&A and deterministic Tier 1-3 diagnostic
+checking behind a single chat surface.
+
+NOTE (found during a live verification pass, not yet resolved): this route
+does NOT implement genuine step-by-step Socratic guided verification.
+Any message containing numeric data is scored as a one-shot FINAL
+diagnostic via the same Tier 1-3 pipeline `/api/submissions` uses --
+there is no per-step hint ladder, no "step N of M" progression, and no
+answer-gate-protected reveal. The real step-by-step engine
+(`backend.socratic_engine.handle_attempt`, the `SocraticSession`/
+`SocraticAttempt` models, and the still-fully-functional
+`/api/socratic/session/*` routes in `backend/api/socratic_routes.py`) is
+not called anywhere in this file. Treat "Socratic mode" as NOT present in
+this unified chat surface until that gap is deliberately addressed --
+see docs/handoff_phase3.md for the full writeup.
 """
 
 from __future__ import annotations
@@ -20,31 +33,20 @@ from backend import classrooms as classroom_service
 from backend.auth import Principal, current_user
 from backend.data_access import FacultyScope, StudentScope
 from backend.db import get_session
-from backend.extraction import extract_submission, parse_number
 from backend.models import (
     ActorType,
     ChatMessage,
     ChatMessageKind,
     ChatThread,
     Diagnosis,
-    DiagnosisStatus,
     Escalation,
     RemedialAction,
-    SocraticAttempt,
-    SocraticSession,
     Submission,
 )
 from backend.pipeline import run_diagnosis
 from backend.retrieval.pipeline import answer_question
-from backend.socratic_engine import (
-    handle_attempt,
-    present_step,
-    steps_for,
-    triage,
-    tutor_reply,
-)
+from backend.socratic_engine import triage
 from backend.tier1_compute.experiments import (
-    ManualNotTranscribedError,
     UnknownExperimentError,
     get_plugin,
 )
@@ -439,6 +441,41 @@ async def send_message(
             )
             db.add(diagnosis)
             await db.flush()
+
+            # Anything that tells the caller to wait for a demonstrator
+            # must actually reach one -- same rule and same shape as
+            # backend/api/diagnostic_routes.py::submit. Without this, a
+            # diagnosis computed as "escalated" or "await_review" through
+            # the unified chat would never appear in the faculty review
+            # queue at all.
+            needs_human = outcome.escalated or outcome.action is RemedialAction.AWAIT_REVIEW
+            if needs_human:
+                db.add(
+                    Escalation(
+                        diagnosis_id=diagnosis.id,
+                        classroom_id=body.classroom_id,
+                        class_session_id=class_session_id,
+                        student_id=principal.id,
+                        reason=outcome.escalate_reason
+                        or (
+                            "Diagnosed, but the remedy is human review: "
+                            f"{outcome.signature_code or 'unspecified'}"
+                        ),
+                    )
+                )
+                await audit.record(
+                    db, audit.TIER3_ESCALATION, user_id=principal.id,
+                    classroom_id=body.classroom_id,
+                    class_session_id=class_session_id,
+                    detail={"experiment": experiment_id, "reason": outcome.escalate_reason},
+                )
+
+            await audit.record(
+                db, audit.DIAGNOSIS_MADE, user_id=principal.id,
+                classroom_id=body.classroom_id,
+                class_session_id=class_session_id,
+                detail={"status": outcome.status.value, "experiment": experiment_id},
+            )
 
             reply_text = outcome.phrased_text
             msg_kind = ChatMessageKind.DIAGNOSTIC
