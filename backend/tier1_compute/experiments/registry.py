@@ -130,6 +130,11 @@ class DeterministicPlugin(ExperimentPlugin):
         """
         checker = self.step_checkers.get(step_index)
         if checker is None:
+            steps = self.steps()
+            if 0 <= step_index < len(steps):
+                step = steps[step_index]
+                if step.requires and all(k in inputs for k in step.requires):
+                    return Tier1Result(outcome=Outcome.PASS, detail={"recorded": True})
             raise ManualNotTranscribedError(
                 f"{self.id}: step {step_index} has no checker configured."
             )

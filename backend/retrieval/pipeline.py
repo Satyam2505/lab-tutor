@@ -133,7 +133,7 @@ def _enrich_query_for_retrieval(query_text: str, experiment_id: str | None) -> s
             if matched_steps:
                 step_info = " " + " ".join(f"{s.key} {s.prompt}" for s in matched_steps)
 
-    if not step_info and re.search(r"\b(guide me|guidance|how to calculate|how do i calculate|calculation guidance)\b", query_text, re.IGNORECASE):
+    if not step_info and re.search(r"\b(guide me|guidance|how to calculate|how do i calculate|calculation guidance|calculation step|step calculation|calculation|calculations|how to do.*calculation|how do i do.*calculation|how to plot|how do i plot)\b", query_text, re.IGNORECASE):
         step_info = " " + " ".join(f"{s.key} {s.prompt}" for s in steps)
 
     if step_info:

@@ -193,21 +193,65 @@ def _cycle(seq):
     return itertools.cycle(seq)
 
 
+_CALCULATION_QUESTIONS_BY_EXP: dict[str, list[str]] = {
+    "exp02": [
+        "how do i do the calculations for ester hydrolysis",
+        "can you guide me through step 1 calculation for rate constant k1 prime",
+        "how do i calculate the rate constant k1 from the slope of log10(V_inf - Vt) vs t",
+        "how to calculate V_inf minus Vt at each time interval",
+        "can you give me a hint for step 1 calculation of ester hydrolysis",
+        "how do i plot the graph of log10(V_inf - Vt) against time and calculate the slope",
+        "what formula is used to calculate k1 in ester hydrolysis",
+        "can you guide me through the calculation of reaction order and rate constant",
+        "how to calculate the pseudo first order rate constant from titration readings",
+        "how do i do step 0 recording and step 1 calculation for ester hydrolysis",
+    ],
+    "exp03": [
+        "how do i do the calculations for nickel colorimetry",
+        "can you guide me through step 1 calculation for unknown concentration",
+        "how do i calculate the unknown Ni2+ concentration from the calibration curve",
+        "how do i plot absorbance against concentration to find the slope",
+        "can you give me a hint for step 1 calibration curve calculation",
+        "how to calculate the unknown nickel ppm using Beer-Lambert law at 440 nm",
+        "what is the calculation step for the standard calibration curve of Ni2+",
+        "can you guide me through the calculation of unknown nickel from standard readings",
+        "how to calculate unknown concentration from slope and intercept",
+        "how do i do step 0 standard readings and step 1 unknown calculation",
+    ],
+    "exp07": [
+        "how do i do the calculations in ORCA and Gabedit",
+        "can you guide me through step 1 calculation for HOMO and LUMO energies",
+        "how do i calculate the HOMO LUMO energy gap from the ORCA output",
+        "how to calculate the converged optimization energy in step 0",
+        "can you give me a hint for step 1 orbital energy calculation",
+        "how do i calculate the orbital contribution percentages in Gabedit",
+        "what is the calculation method for molecular orbital contributions of oxygen and methane",
+        "can you guide me through the step calculation of HOMO and LUMO gap in eV",
+        "how to calculate orbital contributions using B3LYP and 6-31G basis set",
+        "how do i do step 0 geometry optimization and step 1 orbital calculation",
+    ],
+    "exp08": [
+        "how do i do the calculations for conformational analysis of ethane and cyclohexane",
+        "can you guide me through step 1 calculation for ethane conformer energies",
+        "how do i calculate the energy difference between staggered and eclipsed ethane",
+        "can you guide me through step 3 calculation for cyclohexane conformer energies",
+        "how do i calculate the torsional strain barrier in kcal/mol or Hartrees",
+        "can you give me a hint for step 3 cyclohexane energy calculation",
+        "how to calculate the relative energy of chair vs boat conformers of cyclohexane",
+        "can you guide me through the calculation of dihedral angles and conformer energy profile",
+        "how to calculate potential energy differences for cyclohexane twist-boat and chair",
+        "how do i do step 1 ethane energy and step 3 cyclohexane energy calculation",
+    ],
+}
+
+
 def build_priority_cases(experiment_id: str, target: int) -> list[dict]:
     topic = ontology.get_topic(experiment_id)
-    # Strong terms only, not _terms_for()'s strong+weak mix, for the
-    # question *subject*: several experiments' weak_terms sets overlap
-    # deliberately (e.g. exp03/exp09/exp10 all list "beer lambert",
-    # "absorbance", "colorimetry" as shared colorimetric vocabulary), so a
-    # weak term picked as the subject of a "direct_clean" case is not
-    # actually unique to this experiment and can legitimately route
-    # elsewhere -- that's real classifier ambiguity, not a bug in the
-    # classifier, but it makes weak terms the wrong choice for a case
-    # whose whole point is asserting unambiguous routing to one experiment.
     terms = _cycle(sorted(topic.strong_terms) or ["procedure"])
     software_terms = _cycle(_software_for(topic))
     adjacent_terms = _cycle(_adjacent_terms_for(experiment_id))
     verbs = _cycle(_VERBS)
+    calc_qs = _CALCULATION_QUESTIONS_BY_EXP.get(experiment_id, [])
 
     clean_n = round(target * 0.35)
     messy_n = round(target * 0.35)
@@ -230,14 +274,25 @@ def build_priority_cases(experiment_id: str, target: int) -> list[dict]:
         }
 
     templates = _cycle(_CLEAN_PROCEDURAL)
-    for _ in range(clean_n):
+    # Inject bespoke calculation questions first for priority experiments
+    clean_calc = calc_qs[: len(calc_qs) // 2]
+    for q in clean_calc:
+        cases.append(make(q, scope_label="direct_clean", difficulty="easy"))
+
+    remaining_clean = max(0, clean_n - len(clean_calc))
+    for _ in range(remaining_clean):
         term = next(terms)
         q = next(templates).format(term=term, verb=next(verbs))
         cases.append(make(q, scope_label="direct_clean", difficulty="easy"))
 
     messy_templates = _cycle(_MESSY_PROCEDURAL)
     software_templates = _cycle(_SOFTWARE_PROCEDURAL)
-    for i in range(messy_n):
+    messy_calc = calc_qs[len(calc_qs) // 2 :]
+    for q in messy_calc:
+        cases.append(make(q, scope_label="direct_messy", difficulty="messy"))
+
+    remaining_messy = max(0, messy_n - len(messy_calc))
+    for i in range(remaining_messy):
         term = next(terms)
         if topic.software and i % 3 == 0:
             q = next(software_templates).format(term=term, software=next(software_terms))

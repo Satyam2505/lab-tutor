@@ -1,20 +1,21 @@
 """Unified AI Chat routes: modern ChatGPT-style multi-thread chat interface.
 
-Integrates grounded retrieval Q&A and deterministic Tier 1-3 diagnostic
-checking behind a single chat surface.
+Integrates grounded retrieval Q&A, genuine step-by-step Socratic guidance,
+and deterministic Tier 1-3 diagnostic checking behind a single chat
+surface -- the student never picks a "mode"; `send_message` decides
+deterministically which of the three the message is, the same way a
+human demonstrator would tell "give me a hint" apart from "here's my
+final result" apart from "what does this term mean".
 
-NOTE (found during a live verification pass, not yet resolved): this route
-does NOT implement genuine step-by-step Socratic guided verification.
-Any message containing numeric data is scored as a one-shot FINAL
-diagnostic via the same Tier 1-3 pipeline `/api/submissions` uses --
-there is no per-step hint ladder, no "step N of M" progression, and no
-answer-gate-protected reveal. The real step-by-step engine
-(`backend.socratic_engine.handle_attempt`, the `SocraticSession`/
-`SocraticAttempt` models, and the still-fully-functional
-`/api/socratic/session/*` routes in `backend/api/socratic_routes.py`) is
-not called anywhere in this file. Treat "Socratic mode" as NOT present in
-this unified chat surface until that gap is deliberately addressed --
-see docs/handoff_phase3.md for the full writeup.
+Socratic guidance reuses the EXACT engine and DB rows
+`backend/api/socratic_routes.py` uses (`SocraticSession`/
+`SocraticAttempt`, `backend.socratic_engine.handle_attempt`/
+`compute_reveal`/`tutor_reply`) -- one session per (student, classroom,
+experiment, actor_type), looked up/created lazily on first use in any
+thread for that experiment, exactly like `POST /api/socratic/session`
+does. The old `/api/socratic/*` routes keep working unchanged for
+anything that still calls them directly; this file is a second caller
+of the same deterministic engine, not a parallel implementation of it.
 """
 
 from __future__ import annotations
@@ -25,14 +26,16 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend import audit, ratelimit
 from backend import classrooms as classroom_service
+from backend.answer_gate import PrematureRevealError
 from backend.auth import Principal, current_user
 from backend.data_access import FacultyScope, StudentScope
 from backend.db import get_session
+from backend.extraction import extract_submission
 from backend.models import (
     ActorType,
     ChatMessage,
@@ -41,12 +44,21 @@ from backend.models import (
     Diagnosis,
     Escalation,
     RemedialAction,
+    SocraticAttempt,
+    SocraticSession,
     Submission,
 )
 from backend.pipeline import run_diagnosis
 from backend.retrieval.pipeline import answer_question
-from backend.socratic_engine import triage
+from backend.socratic_engine import (
+    compute_reveal,
+    handle_attempt,
+    steps_for,
+    triage,
+    tutor_reply,
+)
 from backend.tier1_compute.experiments import (
+    ManualNotTranscribedError,
     UnknownExperimentError,
     get_plugin,
 )
@@ -311,6 +323,320 @@ async def delete_thread(
     return {"deleted": True}
 
 
+async def _get_socratic_session(
+    db: AsyncSession,
+    user_id: str,
+    classroom_id: str,
+    experiment_id: str,
+    actor_type: ActorType,
+) -> SocraticSession | None:
+    """Lookup only, never creates -- same key `POST /api/socratic/session`
+    uses (student, classroom, experiment, actor_type), so progress made
+    through the chat and progress made through the standalone Socratic
+    routes are the same session, never two conflicting ones.
+    """
+    return (
+        await db.scalars(
+            select(SocraticSession).where(
+                SocraticSession.student_id == user_id,
+                SocraticSession.classroom_id == classroom_id,
+                SocraticSession.experiment_id == experiment_id,
+                SocraticSession.actor_type == actor_type,
+            )
+        )
+    ).first()
+
+
+async def _start_socratic_session(
+    db: AsyncSession,
+    user_id: str,
+    classroom_id: str,
+    class_session_id: str | None,
+    experiment_id: str,
+    actor_type: ActorType,
+) -> SocraticSession:
+    session = SocraticSession(
+        student_id=user_id,
+        classroom_id=classroom_id,
+        class_session_id=class_session_id,
+        experiment_id=experiment_id,
+        actor_type=actor_type,
+    )
+    db.add(session)
+    await db.flush()
+    return session
+
+
+async def _handle_socratic_attempt(
+    db: AsyncSession,
+    principal: Principal,
+    plugin,
+    session: SocraticSession,
+    extracted_dict: dict[str, Any],
+    raw_message: str,
+) -> tuple[str, ChatMessageKind, dict]:
+    """One deterministic step check -- same engine call, same merge-
+    across-steps behaviour, as `POST /api/socratic/session/{id}/attempt`.
+    """
+    numeric_keys = tuple(k for k, v in extracted_dict.items() if not isinstance(v, (list, tuple)))
+    series_keys = tuple(k for k, v in extracted_dict.items() if isinstance(v, (list, tuple)))
+    extracted = extract_submission(extracted_dict, numeric_fields=numeric_keys, series_fields=series_keys)
+    steps = steps_for(plugin)
+    total_steps = len(steps)
+
+    if not extracted.ok:
+        message = "; ".join(extracted.errors) or "That entry could not be checked."
+        return message, ChatMessageKind.SOCRATIC, {
+            "type": "socratic",
+            "prompt": steps[session.current_step].prompt,
+            "current_step": session.current_step,
+            "total_steps": total_steps,
+            "complete": False,
+        }
+
+    submitted = extracted.values.get("reported_value")
+    if submitted is None and len(extracted.values) == 1:
+        submitted = next(iter(extracted.values.values()))
+
+    merged = dict(session.student_data or {})
+    merged.update(extracted.values)
+
+    attempts_on_step = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(SocraticAttempt)
+            .where(
+                SocraticAttempt.session_id == session.id,
+                SocraticAttempt.step_index == session.current_step,
+            )
+        )
+        or 0
+    )
+
+    outcome = handle_attempt(
+        plugin,
+        step_index=session.current_step,
+        attempts_on_step=attempts_on_step,
+        student_data=merged,
+        submitted_value=submitted if isinstance(submitted, (int, float)) else None,
+    )
+
+    db.add(
+        SocraticAttempt(
+            session_id=session.id,
+            student_id=principal.id,
+            step_index=session.current_step,
+            submitted_value=submitted if isinstance(submitted, (int, float)) else None,
+            passed=outcome.passed,
+            hint_level=outcome.hint_level,
+            detail=outcome.detail,
+        )
+    )
+
+    session.student_data = merged
+    if outcome.advanced_to is not None:
+        session.current_step = outcome.advanced_to
+    reply_text = outcome.message
+
+    if outcome.all_steps_complete:
+        session.all_steps_complete = True
+        if outcome.passed:
+            await audit.record(
+                db, audit.REVEAL_GRANTED, user_id=principal.id,
+                classroom_id=session.classroom_id,
+                class_session_id=session.class_session_id,
+                detail={"session": session.id, "experiment": session.experiment_id},
+            )
+            # Every step just verified -- the reveal is deterministic and
+            # safe to attach to this same tutor turn, so the student does
+            # not need to separately ask for it.
+            try:
+                reveal_text = compute_reveal(
+                    plugin,
+                    all_steps_complete=True,
+                    student_data=merged,
+                    student_final_value=submitted if isinstance(submitted, (int, float)) else None,
+                )
+                session.revealed = True
+                reply_text = f"{reply_text}\n\n{reveal_text}"
+            except PrematureRevealError:
+                pass
+
+    return reply_text, ChatMessageKind.SOCRATIC, {
+        "type": "socratic",
+        "prompt": steps[session.current_step].prompt,
+        "current_step": session.current_step,
+        "total_steps": total_steps,
+        "complete": session.all_steps_complete,
+        "passed": outcome.passed,
+        "hint_level": outcome.hint_level,
+    }
+
+
+async def _handle_socratic_chat_turn(
+    db: AsyncSession,
+    principal: Principal,
+    plugin,
+    session: SocraticSession,
+    raw_message: str,
+    intent: triage.Intent,
+) -> tuple[str, ChatMessageKind, dict]:
+    """A question/nudge/confusion turn during an active, incomplete
+    guided session -- phrased by `tutor_reply`, which is structurally
+    unable to see the final answer (see backend/answer_gate). The hint
+    rung is chosen by attempt count, never by the model.
+    """
+    from backend.rag import templates
+
+    steps = steps_for(plugin)
+    step = steps[min(session.current_step, len(steps) - 1)]
+    attempts_on_step = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(SocraticAttempt)
+            .where(
+                SocraticAttempt.session_id == session.id,
+                SocraticAttempt.step_index == session.current_step,
+            )
+        )
+        or 0
+    )
+    hint = templates.hint_text(min(attempts_on_step, 3), step.hints) if attempts_on_step else ""
+
+    reply = await tutor_reply(
+        student_message=raw_message,
+        step_prompt=step.prompt,
+        step_index=session.current_step,
+        total_steps=len(steps),
+        hint_text=hint or templates.refusal_text(),
+        attempts_on_this_step=attempts_on_step,
+        all_steps_complete=session.all_steps_complete,
+        retrieval_query=f"{plugin.title} {step.key}",
+    )
+
+    if reply.redacted:
+        await audit.record(
+            db, audit.ANSWER_GATE_REDACTION, user_id=principal.id,
+            classroom_id=session.classroom_id,
+            detail={"session": session.id, "step": session.current_step},
+        )
+    if session.actor_type is ActorType.STUDENT and triage.needs_staff_attention(reply.intent):
+        await audit.record(
+            db, audit.STUDENT_FLAG, user_id=principal.id,
+            classroom_id=session.classroom_id,
+            detail={
+                "intent": reply.intent.value,
+                "session": session.id,
+                "experiment": session.experiment_id,
+                "message": raw_message[:500],
+            },
+        )
+
+    return reply.text, ChatMessageKind.SOCRATIC, {
+        "type": "socratic",
+        "prompt": step.prompt,
+        "current_step": session.current_step,
+        "total_steps": len(steps),
+        "complete": session.all_steps_complete,
+    }
+
+
+async def _handle_final_diagnostic(
+    db: AsyncSession,
+    principal: Principal,
+    plugin,
+    actor_type: ActorType,
+    body: "SendChatMessageRequest",
+    class_session_id: str | None,
+    experiment_id: str,
+) -> tuple[str, ChatMessageKind, dict]:
+    """An independent, one-shot Tier 1-3 diagnostic -- same pipeline as
+    POST /api/submissions -- for a student who pastes a finished record
+    either before ever engaging guided mode, or after finishing it.
+    """
+    extracted_dict = _extract_numbers_dict(body.message)
+    outcome = await run_diagnosis(
+        plugin,
+        inputs=extracted_dict,
+        reported_value=extracted_dict.get("reported_value"),
+        remarks=body.message,
+        student_text=body.message,
+    )
+
+    submission = Submission(
+        student_id=principal.id,
+        classroom_id=body.classroom_id,
+        class_session_id=class_session_id,
+        experiment_id=experiment_id,
+        actor_type=actor_type,
+        raw_payload={"data": extracted_dict, "remarks": body.message},
+        reported_value=outcome.reported_value,
+    )
+    db.add(submission)
+    await db.flush()
+
+    diagnosis = Diagnosis(
+        submission_id=submission.id,
+        student_id=principal.id,
+        classroom_id=body.classroom_id,
+        class_session_id=class_session_id,
+        status=outcome.status,
+        tier=outcome.tier,
+        signature_code=outcome.signature_code,
+        expected_value=outcome.expected_value,
+        reported_value=outcome.reported_value,
+        detail=outcome.detail,
+        action=outcome.action,
+        phrased_text=outcome.phrased_text,
+        phrasing_source=outcome.phrasing_source,
+        low_confidence=outcome.low_confidence,
+    )
+    db.add(diagnosis)
+    await db.flush()
+
+    # Anything that tells the caller to wait for a demonstrator must
+    # actually reach one -- same rule and same shape as
+    # backend/api/diagnostic_routes.py::submit.
+    needs_human = outcome.escalated or outcome.action is RemedialAction.AWAIT_REVIEW
+    if needs_human:
+        db.add(
+            Escalation(
+                diagnosis_id=diagnosis.id,
+                classroom_id=body.classroom_id,
+                class_session_id=class_session_id,
+                student_id=principal.id,
+                reason=outcome.escalate_reason
+                or (
+                    "Diagnosed, but the remedy is human review: "
+                    f"{outcome.signature_code or 'unspecified'}"
+                ),
+            )
+        )
+        await audit.record(
+            db, audit.TIER3_ESCALATION, user_id=principal.id,
+            classroom_id=body.classroom_id,
+            class_session_id=class_session_id,
+            detail={"experiment": experiment_id, "reason": outcome.escalate_reason},
+        )
+
+    await audit.record(
+        db, audit.DIAGNOSIS_MADE, user_id=principal.id,
+        classroom_id=body.classroom_id,
+        class_session_id=class_session_id,
+        detail={"status": outcome.status.value, "experiment": experiment_id},
+    )
+
+    return outcome.phrased_text, ChatMessageKind.DIAGNOSTIC, {
+        "type": "diagnostic",
+        "status": outcome.status.value,
+        "tier": outcome.tier,
+        "action": outcome.action.value,
+        "explanation": outcome.phrased_text,
+        "citation": outcome.citation,
+        "low_confidence": outcome.low_confidence,
+    }
+
+
 @router.post("/messages")
 async def send_message(
     body: SendChatMessageRequest,
@@ -389,7 +715,9 @@ async def send_message(
                 detail={"intent": intent.value, "message": body.message[:500]},
             )
     else:
-        # 2. Diagnostic Data Check
+        # 2. Resolve the Tier 1 plugin (if any) and any numeric data the
+        # student typed, in plain text -- "ecell=1.1, temperature_k=298"
+        # or "titre volumes: 1, 2, 3, 4".
         extracted_dict = _extract_numbers_dict(body.message)
         plugin = None
         try:
@@ -397,132 +725,71 @@ async def send_message(
         except UnknownExperimentError:
             pass
 
-        run_diag = False
-        if plugin is not None and extracted_dict:
-            run_diag = True
+        has_socratic_steps = False
+        if plugin is not None:
+            try:
+                steps_for(plugin)
+                has_socratic_steps = True
+            except ManualNotTranscribedError:
+                pass
 
-
-        if run_diag and plugin is not None:
-            outcome = await run_diagnosis(
-                plugin,
-                inputs=extracted_dict,
-                reported_value=extracted_dict.get("reported_value"),
-                remarks=body.message,
-                student_text=body.message,
+        socratic_session: SocraticSession | None = None
+        if plugin is not None and has_socratic_steps:
+            socratic_session = await _get_socratic_session(
+                db, principal.id, body.classroom_id, experiment_id, actor_type
             )
 
-            submission = Submission(
-                student_id=principal.id,
-                classroom_id=body.classroom_id,
-                class_session_id=class_session_id,
-                experiment_id=experiment_id,
-                actor_type=actor_type,
-                raw_payload={"data": extracted_dict, "remarks": body.message},
-                reported_value=outcome.reported_value,
-            )
-            db.add(submission)
-            await db.flush()
-
-            diagnosis = Diagnosis(
-                submission_id=submission.id,
-                student_id=principal.id,
-                classroom_id=body.classroom_id,
-                class_session_id=class_session_id,
-                status=outcome.status,
-                tier=outcome.tier,
-                signature_code=outcome.signature_code,
-                expected_value=outcome.expected_value,
-                reported_value=outcome.reported_value,
-                detail=outcome.detail,
-                action=outcome.action,
-                phrased_text=outcome.phrased_text,
-                phrasing_source=outcome.phrasing_source,
-                low_confidence=outcome.low_confidence,
-            )
-            db.add(diagnosis)
-            await db.flush()
-
-            # Anything that tells the caller to wait for a demonstrator
-            # must actually reach one -- same rule and same shape as
-            # backend/api/diagnostic_routes.py::submit. Without this, a
-            # diagnosis computed as "escalated" or "await_review" through
-            # the unified chat would never appear in the faculty review
-            # queue at all.
-            needs_human = outcome.escalated or outcome.action is RemedialAction.AWAIT_REVIEW
-            if needs_human:
-                db.add(
-                    Escalation(
-                        diagnosis_id=diagnosis.id,
-                        classroom_id=body.classroom_id,
-                        class_session_id=class_session_id,
-                        student_id=principal.id,
-                        reason=outcome.escalate_reason
-                        or (
-                            "Diagnosed, but the remedy is human review: "
-                            f"{outcome.signature_code or 'unspecified'}"
-                        ),
-                    )
+        if plugin is not None and socratic_session is not None and not socratic_session.all_steps_complete:
+            if extracted_dict:
+                # 3a. Guided mode was already engaged (the student asked
+                # for guidance at some point) and is incomplete: this
+                # numeric message is an attempt on the CURRENT step,
+                # verified the exact same deterministic way POST
+                # /api/socratic/session/{id}/attempt does. The LLM is not
+                # involved in deciding pass/fail/completion here.
+                reply_text, msg_kind, meta = await _handle_socratic_attempt(
+                    db, principal, plugin, socratic_session, extracted_dict, body.message
                 )
-                await audit.record(
-                    db, audit.TIER3_ESCALATION, user_id=principal.id,
-                    classroom_id=body.classroom_id,
-                    class_session_id=class_session_id,
-                    detail={"experiment": experiment_id, "reason": outcome.escalate_reason},
+            else:
+                # 3b. Guided mode is active and incomplete, but this
+                # message has no data in it -- a question, a request for
+                # a nudge, confusion. Real Socratic conversation: phrases
+                # the CURRENT step's hint (chosen by attempt count, not by
+                # the model) or answers a genuine question grounded in
+                # the manual, and structurally cannot reveal the answer.
+                reply_text, msg_kind, meta = await _handle_socratic_chat_turn(
+                    db, principal, plugin, socratic_session, body.message, intent
                 )
-
-            await audit.record(
-                db, audit.DIAGNOSIS_MADE, user_id=principal.id,
-                classroom_id=body.classroom_id,
-                class_session_id=class_session_id,
-                detail={"status": outcome.status.value, "experiment": experiment_id},
+        elif plugin is not None and extracted_dict:
+            # 4. No guided session exists yet, or it already finished, and
+            # the student pasted numeric data: treat it as an independent
+            # final diagnostic, Tier 1-3, exactly like POST /api/
+            # submissions -- pasting a finished record straight into chat
+            # without ever asking for guidance is exactly what "provide
+            # experiment values/results naturally in chat" describes.
+            reply_text, msg_kind, meta = await _handle_final_diagnostic(
+                db, principal, plugin, actor_type, body, class_session_id, experiment_id
             )
-
-            reply_text = outcome.phrased_text
-            msg_kind = ChatMessageKind.DIAGNOSTIC
-            meta = {
-                "type": "diagnostic",
-                "status": outcome.status.value,
-                "tier": outcome.tier,
-                "action": outcome.action.value,
-                "explanation": outcome.phrased_text,
-                "citation": outcome.citation,
-                "low_confidence": outcome.low_confidence,
-            }
+        elif plugin is not None and has_socratic_steps and socratic_session is None:
+            # 4b. No data, no guided session yet, but this experiment has
+            # Socratic steps configured: this is the first "help me
+            # through this" message, so guided mode starts now, at step
+            # one, the same lazy get-or-create POST /api/socratic/session
+            # does.
+            socratic_session = await _start_socratic_session(
+                db, principal.id, body.classroom_id, class_session_id, experiment_id, actor_type
+            )
+            reply_text, msg_kind, meta = await _handle_socratic_chat_turn(
+                db, principal, plugin, socratic_session, body.message, intent
+            )
         else:
-            # 3. Grounded Q&A with Manual Retrieval
+            # 5. Plain grounded Q&A -- theory, procedure, troubleshooting,
+            # software questions, or a follow-up once guided mode is done.
             result = await answer_question(body.message, active_experiment=experiment_id)
             reply_text = result.text
             msg_kind = ChatMessageKind.QA
-
-            step_meta: dict[str, Any] | None = None
-            if plugin is not None:
-                try:
-                    from backend.socratic_engine import steps_for
-                    steps = steps_for(plugin)
-                    match = re.search(r"\bstep\s*(\d+)\b", body.message, re.IGNORECASE)
-                    matched_step = None
-                    if match:
-                        num = int(match.group(1))
-                        if 0 <= num < len(steps):
-                            matched_step = steps[num]
-                        elif 1 <= num <= len(steps):
-                            matched_step = steps[num - 1]
-                    elif re.search(r"\b(step|calculation|calculate|guidance|guide|how do i|how to)\b", body.message, re.IGNORECASE):
-                        calc_steps = [s for s in steps if "calculate" in s.prompt.lower() or s.is_final]
-                        matched_step = calc_steps[0] if calc_steps else (steps[0] if steps else None)
-
-                    if matched_step is not None:
-                        step_meta = {
-                            "type": "socratic",
-                            "prompt": matched_step.prompt,
-                            "current_step": matched_step.index,
-                            "total_steps": len(steps),
-                        }
-                except Exception:
-                    pass
-
             meta = {
-                "type": step_meta["type"] if step_meta else "qa",
+                "type": "qa",
                 "status": result.status.value,
                 "citations": [
                     {"text": c.text, "page": c.page, "tier": c.tier.value}
@@ -531,10 +798,6 @@ async def send_message(
                 "answer_source": result.answer_source,
                 "intent": intent.value,
             }
-            if step_meta:
-                meta["prompt"] = step_meta["prompt"]
-                meta["current_step"] = step_meta["current_step"]
-                meta["total_steps"] = step_meta["total_steps"]
 
     # Record Assistant Message
     assistant_msg = ChatMessage(
