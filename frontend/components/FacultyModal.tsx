@@ -5,6 +5,7 @@ import {
   api,
   ApiError,
   type Classroom,
+  type ClassSessionInfo,
   type DashboardSubmission,
   type Escalation,
   type Experiment,
@@ -29,6 +30,8 @@ export function FacultyModal({
   const [students, setStudents] = useState<RosterStudent[]>([]);
   const [faculty, setFaculty] = useState<RosterFaculty[]>([]);
   const [summaries, setSummaries] = useState<StudentSummary[]>([]);
+  const [sessions, setSessions] = useState<ClassSessionInfo[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState<DashboardSubmission[]>([]);
   const [escalations, setEscalations] = useState<Escalation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,15 +58,33 @@ export function FacultyModal({
     }
   };
 
-  const loadSummaries = async () => {
-    if (!classroom.active_session_id) return;
+  const loadSessionSummaries = async (sessionId: string) => {
     setLoading(true);
     setError("");
     try {
       const res = await api.get<{ summaries: StudentSummary[] }>(
-        `/api/dashboard/classrooms/${classroom.id}/sessions/${classroom.active_session_id}/summaries`
+        `/api/dashboard/classrooms/${classroom.id}/sessions/${sessionId}/summaries`
       );
       setSummaries(res.summaries);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSummaries = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api.get<{ sessions: ClassSessionInfo[] }>(
+        `/api/dashboard/classrooms/${classroom.id}/sessions`
+      );
+      setSessions(res.sessions);
+      const defaultId = classroom.active_session_id || res.sessions[0]?.id || null;
+      setSelectedSessionId(defaultId);
+      if (defaultId) await loadSessionSummaries(defaultId);
+      else setSummaries([]);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -462,6 +483,27 @@ export function FacultyModal({
           {tab === "summaries" && (
             <div>
               <h3 style={{ fontSize: "0.95rem", margin: "0 0 8px" }}>Post-Session Student Activity Summaries</h3>
+              {sessions.length > 0 && (
+                <div style={{ marginBottom: "12px" }}>
+                  <label className="muted" style={{ fontSize: "0.8rem", display: "block", marginBottom: "4px" }}>
+                    Class session
+                  </label>
+                  <select
+                    value={selectedSessionId ?? ""}
+                    onChange={(e) => {
+                      setSelectedSessionId(e.target.value);
+                      loadSessionSummaries(e.target.value);
+                    }}
+                  >
+                    {sessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.experiment_id} · {new Date(s.started_at).toLocaleString()}
+                        {s.status === "active" ? " (active)" : " (ended)"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {summaries.length === 0 ? (
                 <p className="muted">No summaries generated yet for this session.</p>
               ) : (
