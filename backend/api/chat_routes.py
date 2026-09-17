@@ -446,13 +446,18 @@ async def _handle_socratic_attempt(
         or 0
     )
 
-    outcome = handle_attempt(
-        plugin,
-        step_index=session.current_step,
-        attempts_on_step=attempts_on_step,
-        student_data=merged,
-        submitted_value=submitted if isinstance(submitted, (int, float)) else None,
-    )
+    try:
+        outcome = handle_attempt(
+            plugin,
+            step_index=session.current_step,
+            attempts_on_step=attempts_on_step,
+            student_data=merged,
+            submitted_value=submitted if isinstance(submitted, (int, float)) else None,
+        )
+    except ManualNotTranscribedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
 
     db.add(
         SocraticAttempt(
