@@ -38,6 +38,7 @@ posture as `answer_gate.assert_gate_invariant`.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from backend.llm import LLMUnavailable, get_backend
@@ -101,6 +102,46 @@ class AnswerResult:
         return self.decision.experiment_id
 
 
+def _enrich_query_for_retrieval(query_text: str, experiment_id: str | None) -> str:
+    if not experiment_id:
+        return query_text
+
+    from backend.tier1_compute.experiments import ManualNotTranscribedError, UnknownExperimentError, get_plugin
+    from backend.socratic_engine import steps_for
+
+    try:
+        plugin = get_plugin(experiment_id)
+        steps = steps_for(plugin)
+    except (UnknownExperimentError, ManualNotTranscribedError, Exception):
+        return query_text
+
+    if not steps:
+        return query_text
+
+    match = re.search(r"\bstep\s*(\d+|one|two|three|four|five)\b", query_text, re.IGNORECASE)
+    step_info = ""
+    if match:
+        raw_val = match.group(1).lower()
+        word_map = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+        num = word_map.get(raw_val) if raw_val in word_map else (int(raw_val) if raw_val.isdigit() else None)
+        if num is not None:
+            matched_steps = []
+            if 0 <= num < len(steps):
+                matched_steps.append(steps[num])
+            if 1 <= num <= len(steps) and steps[num - 1] not in matched_steps:
+                matched_steps.append(steps[num - 1])
+            if matched_steps:
+                step_info = " " + " ".join(f"{s.key} {s.prompt}" for s in matched_steps)
+
+    if not step_info and re.search(r"\b(guide me|guidance|how to calculate|how do i calculate|calculation guidance)\b", query_text, re.IGNORECASE):
+        step_info = " " + " ".join(f"{s.key} {s.prompt}" for s in steps)
+
+    if step_info:
+        return f"{query_text} {plugin.title}{step_info}"
+
+    return query_text
+
+
 async def answer_question(
     message: str,
     *,
@@ -127,13 +168,15 @@ async def answer_question(
         else Usage.EXPERIMENT_INSTRUCTION
     )
 
+    search_text = _enrich_query_for_retrieval(decision.query.text, decision.experiment_id)
+
     scored = idx.search(
-        decision.query.text,
+        search_text,
         usage=usage,
         experiment_id=decision.experiment_id,
         k=MAX_PASSAGES_RETRIEVED,
     )
-    scored = rerank(scored, decision.query.text)
+    scored = rerank(scored, search_text)
 
     official = [s for s in scored if s.chunk.tier in (SourceTier.OFFICIAL_MANUAL, SourceTier.OFFICIAL_SUPPLEMENTARY)]
     supplementary = [s for s in scored if s.chunk.tier is SourceTier.CURATED_ADJACENT]

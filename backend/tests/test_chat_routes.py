@@ -137,3 +137,32 @@ class TestChatThreads:
         assert "metadata" in data["message"]
         assert "status" in data["message"]["metadata"]
 
+    async def test_step_calculation_guidance_in_chat(self, client, make_user):
+        _, prof = await make_user("prof.chat4@vit.ac.in")
+        classroom_id, student_code, _ = await _classroom_with_active_session(client, prof, "exp01")
+        _, student = await make_user("student.chat4@vitstudent.ac.in")
+        await client.post(
+            "/api/classrooms/join", json={"join_code": student_code}, headers=auth(student)
+        )
+
+        resp = await client.post(
+            "/api/chat/messages",
+            json={
+                "classroom_id": classroom_id,
+                "experiment_id": "exp01",
+                "message": "Can you guide me through step 1 calculation?",
+            },
+            headers=auth(student),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["message"]["kind"] == "qa"
+        meta = data["message"]["metadata"]
+        assert meta["type"] == "socratic"
+        assert meta["prompt"] == "Calculate Delta-G from your measured Ecell."
+        assert meta["current_step"] == 1
+        assert meta["total_steps"] == 2
+        assert meta["status"] == "in_scope_supported"
+        assert len(meta["citations"]) > 0
+        assert "could not find enough" not in data["message"]["content"]
+

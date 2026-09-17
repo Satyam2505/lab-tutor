@@ -493,8 +493,36 @@ async def send_message(
             result = await answer_question(body.message, active_experiment=experiment_id)
             reply_text = result.text
             msg_kind = ChatMessageKind.QA
+
+            step_meta: dict[str, Any] | None = None
+            if plugin is not None:
+                try:
+                    from backend.socratic_engine import steps_for
+                    steps = steps_for(plugin)
+                    match = re.search(r"\bstep\s*(\d+)\b", body.message, re.IGNORECASE)
+                    matched_step = None
+                    if match:
+                        num = int(match.group(1))
+                        if 0 <= num < len(steps):
+                            matched_step = steps[num]
+                        elif 1 <= num <= len(steps):
+                            matched_step = steps[num - 1]
+                    elif re.search(r"\b(step|calculation|calculate|guidance|guide|how do i|how to)\b", body.message, re.IGNORECASE):
+                        calc_steps = [s for s in steps if "calculate" in s.prompt.lower() or s.is_final]
+                        matched_step = calc_steps[0] if calc_steps else (steps[0] if steps else None)
+
+                    if matched_step is not None:
+                        step_meta = {
+                            "type": "socratic",
+                            "prompt": matched_step.prompt,
+                            "current_step": matched_step.index,
+                            "total_steps": len(steps),
+                        }
+                except Exception:
+                    pass
+
             meta = {
-                "type": "qa",
+                "type": step_meta["type"] if step_meta else "qa",
                 "status": result.status.value,
                 "citations": [
                     {"text": c.text, "page": c.page, "tier": c.tier.value}
@@ -503,6 +531,10 @@ async def send_message(
                 "answer_source": result.answer_source,
                 "intent": intent.value,
             }
+            if step_meta:
+                meta["prompt"] = step_meta["prompt"]
+                meta["current_step"] = step_meta["current_step"]
+                meta["total_steps"] = step_meta["total_steps"]
 
     # Record Assistant Message
     assistant_msg = ChatMessage(
