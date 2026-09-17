@@ -93,36 +93,36 @@ UNKNOWN_EXPERIMENTS = tuple(
 # ---------------------------------------------------------------------------
 
 _CLEAN_PROCEDURAL = [
-    "how do i {verb} the {term}",
-    "where do i find the {term}",
-    "what is the {term} for this experiment",
-    "which step covers the {term}",
-    "what should i record for the {term}",
-    "how is the {term} calculated",
-    "what does the manual say about the {term}",
-    "where is the {term} in the table i have to fill",
+    "can you guide me through step 1 calculation for {term}",
+    "how do i calculate the {term} in step 1",
+    "can you guide me through the calculation for {term}",
+    "which step covers the {term} calculation",
+    "can you give me a hint for step calculation of {term}",
+    "how is the {term} calculated step by step",
+    "where do i find the {term} in step 1 calculation",
+    "how should i record and calculate the {term} for this step",
 ]
 
 _MESSY_PROCEDURAL = [
-    "how to {verb} {term}",
-    "{term} kaha milega",
-    "{term} kaise nikale",
-    "bhai {term} kidhar hai",
-    "{term} ka formula kya hai",
-    "mera {term} nahi aa raha",
-    "why {term} not coming properly",
-    "wat is d {term} again",
-    "{term} kaise dekhu",
-    "pls tell {term} location",
+    "can you guide me through step 1 calculation of {term}",
+    "how to calculate {term} in step 1",
+    "guide me through the step calculation for {term}",
+    "what is the step calculation method for {term}",
+    "how to do step calculation for {term}",
+    "why is my {term} calculation step off",
+    "can you help me with step 1 calculation of {term}",
+    "give me guidance for {term} step calculation",
+    "how to find {term} in step 1 calculation",
+    "please guide me on {term} calculation step",
 ]
 
 _SOFTWARE_PROCEDURAL = [
-    "where do i click to open {software}",
-    "{software} me {term} kaha hai",
-    "how do i get the {term} in {software}",
-    "{software} ka {term} option kidhar hai",
-    "which button in {software} shows the {term}",
-    "my {software} run is not showing {term}",
+    "how do i calculate {term} in {software} step by step",
+    "can you guide me through {term} calculation in {software}",
+    "how do i get the {term} step calculation in {software}",
+    "which button in {software} performs the {term} calculation step",
+    "how to run {software} for {term} step calculation",
+    "can you guide me through step 1 in {software} for {term}",
 ]
 
 _ADJACENT_TEMPLATES = [
