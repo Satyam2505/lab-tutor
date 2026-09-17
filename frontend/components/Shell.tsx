@@ -122,35 +122,36 @@ function ProfileCompletionForm({
   const [regNo, setRegNo] = useState(me.reg_no ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const needsRegNo = me.role === "student";
+  // Optional for students, never asked of faculty/admin -- it's stored
+  // if given, but never blocks onboarding.
+  const showRegNo = me.role === "student";
 
   return (
     <div className="card">
       {error && <div className="error">{error}</div>}
       <p className="muted">
-        Signed in as {me.email}. We just need a couple of details before you
-        continue.
+        Signed in as {me.email}. What should we call you?
       </p>
       <label>
         <span>Full name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
-      {needsRegNo && (
+      {showRegNo && (
         <label>
-          <span>Registration number</span>
+          <span>Registration number (optional)</span>
           <input value={regNo} onChange={(e) => setRegNo(e.target.value)} className="mono" />
         </label>
       )}
       <button
         className="btn btn-primary"
-        disabled={saving || !name.trim() || (needsRegNo && !regNo.trim())}
+        disabled={saving || !name.trim()}
         onClick={async () => {
           setSaving(true);
           setError("");
           try {
             const updated = await api.post<Me>("/api/auth/complete-profile", {
               name: name.trim(),
-              reg_no: needsRegNo ? regNo.trim() : null,
+              reg_no: showRegNo ? regNo.trim() || null : null,
             });
             onDone(updated);
           } catch (e) {

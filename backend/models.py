@@ -114,11 +114,17 @@ class User(Base):
     google_sub: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), default="")
-    # Student registration number. Required (app-level, not DB-level) for
-    # STUDENT-effective users, not applicable to faculty/admin -- see
-    # backend/auth/dependencies.py::profile_complete. Not unique: formats
-    # vary and duplicates are tolerated during rollout (product decision).
+    # Student registration number. Optional for everyone -- never blocks
+    # onboarding (see `onboarded` below and backend/api/auth_routes.py).
+    # Not unique: formats vary and duplicates are tolerated (product
+    # decision).
     reg_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # True once the user has been through the one-time onboarding form
+    # (name confirm/edit + optional reg_no for students). Deliberately
+    # NOT derived from "is name non-empty" -- Google's OAuth identity
+    # always supplies a name (falling back to the email prefix if none),
+    # so that would never be false and onboarding would never show.
+    onboarded: Mapped[bool] = mapped_column(Boolean, default=False)
     # Persisted for display/audit only. Authorisation ALWAYS re-derives the
     # role from the verified email (admin allowlist, then domain) on the
     # request -- never from here.

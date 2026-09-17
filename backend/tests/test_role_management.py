@@ -192,7 +192,29 @@ class TestProfileCompletion:
     async def test_faculty_profile_never_needs_a_reg_no(self, client, make_user):
         _, token = await make_user("prof.noregno@vit.ac.in")
         me = await client.get("/api/auth/me", headers=auth(token))
-        assert me.json()["profile_complete"] is True
+        # Faculty still go through the one-time "confirm your name" step
+        # (like every role does), just never asked for a reg_no.
+        assert me.json()["profile_complete"] is False
+
+        resp = await client.post(
+            "/api/auth/complete-profile",
+            json={"name": "Dr. Faculty", "reg_no": None},
+            headers=auth(token),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["profile_complete"] is True
+        assert resp.json()["reg_no"] is None
+
+    async def test_student_reg_no_is_optional_not_required(self, client, make_user):
+        _, token = await make_user("optional.regno@vitstudent.ac.in")
+        resp = await client.post(
+            "/api/auth/complete-profile",
+            json={"name": "No Reg No Student", "reg_no": None},
+            headers=auth(token),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["profile_complete"] is True
+        assert resp.json()["reg_no"] is None
 
     async def test_name_persists_across_a_second_login_instead_of_being_overwritten(
         self, client, make_user, db
