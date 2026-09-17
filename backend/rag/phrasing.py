@@ -160,6 +160,14 @@ _FAIL_CLAIMS = re.compile(
     re.IGNORECASE,
 )
 
+# Weaker local models sometimes ignore "no preamble" and narrate their own
+# task instead of just doing it (e.g. "Here's a summary of the diagnosis:").
+_META_PREAMBLE = re.compile(
+    r"^\s*(here'?s|here is|sure[,!]?|certainly[,!]?|of course[,!]?|"
+    r"as an ai\b|i cannot\b|i can'?t\b)\b",
+    re.IGNORECASE,
+)
+
 
 def validate_output(text: str, result: Tier1Result) -> tuple[bool, str]:
     """Reject prose that contradicts the determined verdict.
@@ -173,6 +181,9 @@ def validate_output(text: str, result: Tier1Result) -> tuple[bool, str]:
         return False, "empty reply"
     if len(text) > MAX_OUTPUT_CHARS:
         return False, "reply exceeded the length limit"
+    first_line = text.strip().splitlines()[0]
+    if _META_PREAMBLE.match(first_line):
+        return False, "reply narrated its own task instead of restating the facts"
 
     failing = result.outcome in (
         Outcome.FAIL_WITH_SIGNATURE,
