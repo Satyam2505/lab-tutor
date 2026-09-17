@@ -5,6 +5,8 @@ import {
   api,
   ApiError,
   type Classroom,
+  type DashboardSubmission,
+  type Escalation,
   type Experiment,
   type RosterFaculty,
   type RosterStudent,
@@ -22,10 +24,12 @@ export function FacultyModal({
   onClose: () => void;
   onClassroomUpdated: () => void;
 }) {
-  const [tab, setTab] = useState<"roster" | "session" | "settings" | "summaries">("roster");
+  const [tab, setTab] = useState<"roster" | "session" | "settings" | "activity" | "summaries">("roster");
   const [students, setStudents] = useState<RosterStudent[]>([]);
   const [faculty, setFaculty] = useState<RosterFaculty[]>([]);
   const [summaries, setSummaries] = useState<StudentSummary[]>([]);
+  const [submissions, setSubmissions] = useState<DashboardSubmission[]>([]);
+  const [escalations, setEscalations] = useState<Escalation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -66,9 +70,41 @@ export function FacultyModal({
     }
   };
 
+  const loadActivity = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [subRes, escRes] = await Promise.all([
+        api.get<{ submissions: DashboardSubmission[] }>(
+          `/api/dashboard/classrooms/${classroom.id}/submissions`,
+        ),
+        api.get<{ escalations: Escalation[] }>(
+          `/api/dashboard/classrooms/${classroom.id}/escalations?unresolved_only=false`,
+        ),
+      ]);
+      setSubmissions(subRes.submissions);
+      setEscalations(escRes.escalations);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResolveEscalation = async (id: string) => {
+    setError("");
+    try {
+      await api.post(`/api/dashboard/escalations/${id}/resolve`, {});
+      loadActivity();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  };
+
   useEffect(() => {
     if (tab === "roster") loadRoster();
     if (tab === "summaries") loadSummaries();
+    if (tab === "activity") loadActivity();
   }, [tab]);
 
   const handlePromote = async (studentId: string) => {
@@ -158,7 +194,7 @@ export function FacultyModal({
         </div>
 
         <div style={{ display: "flex", borderBottom: "1px solid var(--border)", background: "var(--surface-hover)" }}>
-          {(["roster", "session", "settings", "summaries"] as const).map((t) => (
+          {(["roster", "session", "settings", "activity", "summaries"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -345,6 +381,77 @@ export function FacultyModal({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Activity Tab: submissions + escalations */}
+          {tab === "activity" && (
+            <div>
+              <h3 style={{ fontSize: "0.95rem", margin: "0 0 8px" }}>
+                Review queue {escalations.filter((e) => !e.resolved).length > 0 && (
+                  <span className="pill pill-warn">
+                    {escalations.filter((e) => !e.resolved).length} unresolved
+                  </span>
+                )}
+              </h3>
+              {escalations.length === 0 ? (
+                <p className="muted">Nothing has needed human review yet.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
+                  {escalations.map((e) => (
+                    <div key={e.id} className="card" style={{ padding: "10px", margin: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <strong>{e.student_email}</strong>
+                        <span className={e.resolved ? "pill pill-pass" : "pill pill-warn"}>
+                          {e.resolved ? "resolved" : "needs review"}
+                        </span>
+                      </div>
+                      <p style={{ margin: "4px 0" }}>{e.reason}</p>
+                      <p className="muted" style={{ margin: "0 0 6px", fontSize: "0.8rem" }}>
+                        Reported {e.reported_value ?? "—"} · Expected {e.expected_value ?? "—"}
+                      </p>
+                      {!e.resolved && (
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          onClick={() => handleResolveEscalation(e.id)}
+                        >
+                          Mark resolved
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <h3 style={{ fontSize: "0.95rem", margin: "16px 0 8px" }}>
+                All submissions ({submissions.length})
+              </h3>
+              {submissions.length === 0 ? (
+                <p className="muted">No submissions yet.</p>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Experiment</th>
+                      <th>Status</th>
+                      <th>Reported</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {submissions.map((s) => (
+                      <tr key={s.submission_id}>
+                        <td>{s.student_email}</td>
+                        <td className="mono">{s.experiment_id}</td>
+                        <td>
+                          <span className={`pill pill-${s.status}`}>{s.status}</span>
+                        </td>
+                        <td>{s.reported_value ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 
