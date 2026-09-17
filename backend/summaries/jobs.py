@@ -281,15 +281,22 @@ async def _summarise_student(job: SummaryJob, student_id: str) -> None:
             all_steps_complete=bool(session_row and session_row.all_steps_complete),
         )
 
-        transcript = "\n".join(f"{m.author}: {m.content}" for m in messages)
-        flagged, reason = await _sanity_check(transcript)
-
-        if flagged:
-            # Still written, still shown to the professor.
-            text = deterministic_summary(traj)
-            source = "template"
+        if traj.is_empty:
+            # No LLM call at all -- there is nothing to phrase and
+            # nothing to sanity-check. This is the common case at pilot
+            # scale (most of a section didn't touch every experiment
+            # every session) and it must stay cheap.
+            text, source = deterministic_summary(traj), "template"
+            flagged, reason = False, None
         else:
-            text, source = await _generate_summary(traj)
+            transcript = "\n".join(f"{m.author}: {m.content}" for m in messages)
+            flagged, reason = await _sanity_check(transcript)
+
+            if flagged:
+                # Still written, still shown to the professor.
+                text, source = deterministic_summary(traj), "template"
+            else:
+                text, source = await _generate_summary(traj)
 
         db.add(
             StudentSummary(

@@ -366,7 +366,11 @@ async def test_flagged_transcript_is_surfaced_not_dropped(db, setup, fake_llm):
     assert summary.text, "a flagged student still gets the deterministic summary"
 
 
-async def test_empty_transcript_is_flagged(db, setup, fake_llm):
+async def test_empty_activity_skips_the_llm_entirely(db, setup, fake_llm):
+    """A student with genuinely no recorded activity must not cost an
+    LLM call at all -- neither the sanity check nor the phrasing call.
+    This is the common case at pilot scale (most students won't touch
+    every experiment every session), so it has to stay cheap."""
     job = await start_job_for_session(
         db, class_session_id=setup["class_session"].id,
         classroom_id=setup["classroom"].id, experiment_id="exp08",
@@ -376,7 +380,9 @@ async def test_empty_transcript_is_flagged(db, setup, fake_llm):
     await run_job(job.id, [setup["student"].id], workers=1)
 
     summary = (await db.scalars(select(StudentSummary))).first()
-    assert summary.flagged is True
+    assert summary.flagged is False
+    assert "No recorded activity" in summary.text
+    assert fake_llm.calls == []
 
 
 async def test_summaries_are_never_returned_on_a_student_route(
