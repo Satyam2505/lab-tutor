@@ -15,6 +15,15 @@ import {
 import { MessageBubble } from "./MessageBubble";
 import { FacultyModal } from "./FacultyModal";
 import { AdminModal } from "./AdminModal";
+import {
+  BoltIcon,
+  ChatIcon,
+  CloseIcon,
+  EditIcon,
+  GraduationCapIcon,
+  LightbulbIcon,
+  TrashIcon,
+} from "./Icons";
 
 const STORAGE_KEY_CLASSROOM = "labtutor:active-classroom-id";
 const STORAGE_KEY_EXP = "labtutor:active-experiment-id";
@@ -457,25 +466,27 @@ export function ChatWorkspace({ me }: { me: Me }) {
                     fontSize: "0.85rem",
                   }}
                 >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                    💬 {t.title}
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <ChatIcon size={14} /> {t.title}
                   </span>
-                  <div style={{ display: "flex", gap: "4px" }}>
+                  <div style={{ display: "flex", gap: "6px" }}>
                     <button
+                      aria-label="Rename chat"
                       onClick={(e) => {
                         e.stopPropagation();
                         setRenameThreadId(t.id);
                         setRenameTitle(t.title);
                       }}
-                      style={{ background: "none", border: "none", color: "var(--sidebar-muted)", cursor: "pointer", padding: 0 }}
+                      style={{ background: "none", border: "none", color: "var(--sidebar-muted)", cursor: "pointer", padding: 0, display: "flex" }}
                     >
-                      ✏️
+                      <EditIcon size={13} />
                     </button>
                     <button
+                      aria-label="Delete chat"
                       onClick={(e) => handleDeleteThread(t.id, e)}
-                      style={{ background: "none", border: "none", color: "var(--sidebar-muted)", cursor: "pointer", padding: 0 }}
+                      style={{ background: "none", border: "none", color: "var(--sidebar-muted)", cursor: "pointer", padding: 0, display: "flex" }}
                     >
-                      🗑️
+                      <TrashIcon size={13} />
                     </button>
                   </div>
                 </div>
@@ -490,18 +501,18 @@ export function ChatWorkspace({ me }: { me: Me }) {
             <button
               className="btn btn-secondary btn-sm"
               onClick={() => setShowFacultyModal(true)}
-              style={{ width: "100%" }}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
             >
-              🎓 Classroom Management
+              <GraduationCapIcon size={14} /> Classroom Management
             </button>
           )}
           {me.role === "admin" && (
             <button
               className="btn btn-secondary btn-sm"
               onClick={() => setShowAdminModal(true)}
-              style={{ width: "100%" }}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
             >
-              ⚡ Platform Admin
+              <BoltIcon size={14} /> Platform Admin
             </button>
           )}
           <a
@@ -572,8 +583,8 @@ export function ChatWorkspace({ me }: { me: Me }) {
               <p className="muted">
                 Ask questions about <strong>{selectedExp?.title}</strong>, work through procedure and theory, get Socratic hints, or paste your numerical data to run a diagnostic check.
               </p>
-              <p className="muted" style={{ fontSize: "0.8rem", marginTop: "12px" }}>
-                💡 <em>Example prompts to try:</em>
+              <p className="muted" style={{ fontSize: "0.8rem", marginTop: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <LightbulbIcon size={14} /> <em>Example prompts to try:</em>
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px" }}>
                 <button
@@ -648,7 +659,7 @@ export function ChatWorkspace({ me }: { me: Me }) {
           <div className="modal-content" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 style={{ margin: 0, fontSize: "1rem" }}>Join Classroom</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowJoinModal(false)}>✕</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowJoinModal(false)} aria-label="Close" style={{ display: "flex" }}><CloseIcon size={14} /></button>
             </div>
             <div className="modal-body">
               {error && <div className="error">{error}</div>}
@@ -677,7 +688,7 @@ export function ChatWorkspace({ me }: { me: Me }) {
           <div className="modal-content" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 style={{ margin: 0, fontSize: "1rem" }}>Create Section</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateModal(false)}>✕</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateModal(false)} aria-label="Close" style={{ display: "flex" }}><CloseIcon size={14} /></button>
             </div>
             <div className="modal-body">
               {error && <div className="error">{error}</div>}
@@ -704,7 +715,7 @@ export function ChatWorkspace({ me }: { me: Me }) {
           <div className="modal-content" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 style={{ margin: 0, fontSize: "1rem" }}>Rename Chat Thread</h2>
-              <button className="btn btn-secondary btn-sm" onClick={() => setRenameThreadId(null)}>✕</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setRenameThreadId(null)} aria-label="Close" style={{ display: "flex" }}><CloseIcon size={14} /></button>
             </div>
             <div className="modal-body">
               <label>

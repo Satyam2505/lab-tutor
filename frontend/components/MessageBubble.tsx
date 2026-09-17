@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { UnifiedChatMessage } from "@/lib/api";
+import { BookIcon, CheckIcon, WarningIcon } from "@/components/Icons";
 
 export function MessageBubble({ message }: { message: UnifiedChatMessage }) {
   const isStudent = message.author === "student";
@@ -75,8 +76,8 @@ export function MessageBubble({ message }: { message: UnifiedChatMessage }) {
               )}
             </div>
             {meta.low_confidence && (
-              <p className="muted" style={{ fontSize: "0.75rem", margin: "2px 0 0" }}>
-                ⚠️ Low-confidence qualitative check — human review requested.
+              <p className="muted" style={{ fontSize: "0.75rem", margin: "2px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
+                <WarningIcon size={12} /> Low-confidence qualitative check — human review requested.
               </p>
             )}
           </div>
@@ -115,8 +116,9 @@ export function MessageBubble({ message }: { message: UnifiedChatMessage }) {
 
         {/* Diagnostic Citation */}
         {meta.type === "diagnostic" && meta.citation && (
-          <div style={{ marginTop: "8px", fontSize: "0.8rem", color: "var(--muted)" }}>
-            📖 <strong>Manual reference:</strong> {meta.citation}
+          <div style={{ marginTop: "8px", fontSize: "0.8rem", color: "var(--muted)", display: "flex", alignItems: "flex-start", gap: "6px" }}>
+            <BookIcon size={13} className="muted" />
+            <span><strong>Manual reference:</strong> {meta.citation}</span>
           </div>
         )}
 
@@ -175,7 +177,13 @@ export function MessageBubble({ message }: { message: UnifiedChatMessage }) {
               className="btn btn-sm btn-secondary"
               style={{ padding: "2px 6px", fontSize: "0.7rem" }}
             >
-              {copied ? "Copied ✓" : "Copy"}
+              {copied ? (
+                <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <CheckIcon size={12} /> Copied
+                </span>
+              ) : (
+                "Copy"
+              )}
             </button>
           </div>
         )}

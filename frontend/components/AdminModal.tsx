@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError, type AdminUser } from "@/lib/api";
+import { CloseIcon } from "@/components/Icons";
 
 export function AdminModal({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
@@ -60,7 +61,9 @@ export function AdminModal({ onClose }: { onClose: () => void }) {
             <h2 style={{ margin: 0, fontSize: "1.1rem" }}>Platform Administration</h2>
             <p className="muted" style={{ margin: 0 }}>Global Role & User Management</p>
           </div>
-          <button className="btn btn-secondary btn-sm" onClick={onClose}>✕ Close</button>
+          <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <CloseIcon size={14} /> Close
+          </button>
         </div>
 
         <div className="modal-body">

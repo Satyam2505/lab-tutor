@@ -12,6 +12,7 @@ import {
   type RosterStudent,
   type StudentSummary,
 } from "@/lib/api";
+import { CloseIcon } from "@/components/Icons";
 
 export function FacultyModal({
   classroom,
@@ -190,7 +191,9 @@ export function FacultyModal({
             <h2 style={{ margin: 0, fontSize: "1.1rem" }}>Classroom Management</h2>
             <p className="muted" style={{ margin: 0 }}>{classroom.name}</p>
           </div>
-          <button className="btn btn-secondary btn-sm" onClick={onClose}>✕ Close</button>
+          <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <CloseIcon size={14} /> Close
+          </button>
         </div>
 
         <div style={{ display: "flex", borderBottom: "1px solid var(--border)", background: "var(--surface-hover)" }}>
