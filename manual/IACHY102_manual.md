@@ -1,15 +1,8 @@
 # IACHY102 — Engineering Chemistry Laboratory Manual (VIT)
 
-Transcribed text of the manual supplied by the user in-chat on 2026-09-12
-(the source PDF, `IACHY102-2026-27-manual_2_260830_133124.pdf`, was pasted
-as document content, not deposited as a binary file in this repo). Page
-numbers below are the manual's own printed page numbers, so citations
-against this file line up with citations against the original PDF.
-
-This file **replaces** `BACHY105.pdf` as the course's source of truth —
-see `README.md` in this directory and `docs/ARCHITECTURE.md` §"Manual
-status". It supersedes every BACHY105-numbered assumption baked into the
-pre-existing code (`docs/final_audit.md` lists what that broke).
+Transcribed text of the IACHY102 course manual. Page numbers below are
+the manual's own printed page numbers, so citations against this file
+line up with citations against the original PDF.
 
 Course: IACHY102, Engineering Chemistry Laboratory, VIT. 10 experiments
 assessed this semester, 10 marks each, 100 total, no FAT — continuous
@@ -36,14 +29,9 @@ the wider syllabus pool, not the assessed set)
 | 9 | Colorimetric estimation of Fe2+ (conventional + smartphone RGB) | 48–51 |
 | 10 | Size-dependent colour variation of Cu2O nanoparticles (nephelometry) | 36–38 |
 
-**Correction against the pre-existing codebase:** the code (pre-dating
-this manual) guessed Experiment 7 = ethane conformers and Experiment 8 =
-cyclohexane conformers, as two separate "method-choice" experiments. The
-real manual has **one** experiment (8) covering both ethane
-(staggered/eclipsed) and cyclohexane (chair/boat/twist-boat) conformer
-energies, and Experiment 7 is an unrelated DFT/orbital-contribution
-workflow (CH4 and O2, HOMO/LUMO, no ordering check of the kind the code
-implemented). See `docs/final_audit.md`.
+Experiment 8 covers both ethane (staggered/eclipsed) and cyclohexane
+(chair/boat/twist-boat) conformer energies. Experiment 7 is a separate
+DFT/orbital-contribution workflow (CH4 and O2, HOMO/LUMO).
 
 ---
 
@@ -100,9 +88,7 @@ k₁' = (2.303/t)·log[(V∞ − V₀)/(V∞ − Vt)], equivalently k₁' = slop
 volumes at t=0, at time t, and at completion. No fully-worked numeric
 example is printed (Table-1 on p.19 is blank for the student to fill);
 the sample graph (p.18) shows illustrative points only, not tabulated
-values to reproduce exactly. **Category 1 (worked-example) test data for
-Experiment 2 cannot be produced without fabrication** — flag per
-CLAUDE.md testing philosophy rather than inventing numbers.
+values to reproduce exactly.
 
 ---
 
@@ -174,12 +160,9 @@ Workflow (Gabedit → ORCA 5.0.4 → Avogadro), for **CH4** and **O2**:
 No reference numeric HOMO/LUMO values are printed (the result tables are
 blank for the student to fill from their own ORCA runs) — this is a
 computational-method-execution experiment, not a measured-vs-recomputed
-quantity. There is no formula Tier 1 can independently recompute; what
-*is* checkable deterministically is job-completion / convergence
-markers and internally-consistent physics (e.g. LUMO energy > HOMO
-energy for the same run, energy after optimization ≤ energy before). See
-`docs/final_audit.md` for why the pre-existing `exp07.py` (ethane
-ordering) does not belong here.
+quantity. What can be checked is job-completion / convergence markers
+and internally-consistent physics (e.g. LUMO energy > HOMO energy for
+the same run, energy after optimization ≤ energy before).
 
 ---
 
@@ -201,9 +184,7 @@ Deterministic check available: the *ordering* the chemistry requires —
 staggered < eclipsed (ethane); chair < twist-boat < half-chair, chair <
 boat, twist-boat < boat (cyclohexane) — can be verified from the
 student's own reported energies without needing the manual's specific
-numbers, exactly as the pre-existing `QualitativeOrderingPlugin`
-mechanism was built to do. It was previously split across two
-experiment files (exp07/exp08); it belongs entirely under Experiment 8.
+numbers.
 
 ---
 
@@ -230,26 +211,3 @@ turbidity (NTU) vs NaOH volume calibration, unknown read off the graph.
 No numeric turbidity values are printed (both the standard curve figure
 on p.38 and the observations table are for the student's own run) — no
 worked example to reproduce.
-
----
-
-## Summary: which experiments have a manual-printed worked numeric example
-
-| # | Worked example present? | Category 1 golden case |
-|---|---|---|
-| 1 | **Yes** — Ecell (Nernst), ΔG, ΔH, ΔS all fully worked (p.13–15) | `exp01.json` (added) |
-| 2 | No | not fabricated — flagged |
-| 3 | No | not fabricated — flagged |
-| 4 | No | not fabricated — flagged |
-| 5 | No (Scherrer eq. given, no θ/FWHM sample numbers) | not fabricated — flagged |
-| 6 | No | not fabricated — flagged |
-| 7 | No (no numeric reference orbital energies) | N/A — not a recompute-and-compare shape |
-| 8 | No (reference plots only, not tabulated numbers) | ordering-only check, no numeric ground truth needed |
-| 9 | No | not fabricated — flagged |
-| 10 | No | not fabricated — flagged |
-
-Per CLAUDE.md's testing philosophy, only Experiment 1 gets a Category-1
-golden test in this pass. The other nine keep formula-level
-implementations (traceable to the manual's own stated equations) without
-a manual-verified worked-example regression test, and that gap is
-recorded explicitly rather than papered over — see `docs/final_audit.md`.
